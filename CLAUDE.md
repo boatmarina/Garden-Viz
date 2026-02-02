@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Garden-Viz is a garden visualization project. This repository is currently in its initial state.
+Garden-Viz brings landscape design plans to life so you can better visualize what they will look like.
 
 ## Repository Structure
 
