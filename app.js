@@ -1,18 +1,28 @@
 (() => {
   // ---- State ----
   let image = null;
-  let imageData = null; // Cached full-image pixel data
+  let imageData = null;
   let scale = 1;
   let offsetX = 0, offsetY = 0;
   let markers = [];
-  let colorMap = []; // [{id, color:[r,g,b], name, dbKey}]
+  let colorMap = [];
   let selectedId = null;
   let pickingColor = false;
   let dragging = false;
   let dragStart = { x: 0, y: 0, ox: 0, oy: 0 };
   let nextMarkerId = 1;
   let nextColorId = 1;
-  let pendingColor = null; // Color waiting to be named
+  let pendingColor = null;
+
+  // Crop selection state
+  let cropMode = false;
+  let cropDragging = false;
+  let cropRect = null; // {x, y, w, h} in image coords
+  let cropStart = null;
+
+  // Legend modal state
+  let legendImageSource = null; // HTMLImageElement or HTMLCanvasElement ready for parsing
+  let parsedEntries = []; // Results from LegendParser
 
   // ---- DOM Refs ----
   const uploadArea = document.getElementById('uploadArea');
@@ -25,12 +35,14 @@
   const highlightCanvas = document.getElementById('highlightCanvas');
   const highlightCtx = highlightCanvas.getContext('2d');
   const overlay = document.getElementById('markersOverlay');
+  const cropSelection = document.getElementById('cropSelection');
   const panelPlaceholder = document.getElementById('panelPlaceholder');
   const panelContent = document.getElementById('panelContent');
 
   const btnZoomIn = document.getElementById('btnZoomIn');
   const btnZoomOut = document.getElementById('btnZoomOut');
   const btnFitView = document.getElementById('btnFitView');
+  const btnParseLegend = document.getElementById('btnParseLegend');
   const btnPickColor = document.getElementById('btnPickColor');
   const btnScanAll = document.getElementById('btnScanAll');
   const btnExport = document.getElementById('btnExport');
@@ -55,6 +67,7 @@
   const btnDeleteMarker = document.getElementById('btnDeleteMarker');
   const markerColorSwatch = document.getElementById('markerColorSwatch');
 
+  // Color modal
   const colorModal = document.getElementById('colorModal');
   const modalSwatch = document.getElementById('modalSwatch');
   const modalColorText = document.getElementById('modalColorText');
@@ -62,6 +75,30 @@
   const modalCancel = document.getElementById('modalCancel');
   const modalConfirm = document.getElementById('modalConfirm');
   const plantSuggestions = document.getElementById('plantSuggestions');
+
+  // Legend modal
+  const legendModal = document.getElementById('legendModal');
+  const legendTabs = legendModal.querySelectorAll('.legend-tab');
+  const legendTabUpload = document.getElementById('legendTabUpload');
+  const legendTabCrop = document.getElementById('legendTabCrop');
+  const legendUploadZone = document.getElementById('legendUploadZone');
+  const legendFileInput = document.getElementById('legendFileInput');
+  const legendUploadPreview = document.getElementById('legendUploadPreview');
+  const legendPreviewImg = document.getElementById('legendPreviewImg');
+  const btnClearLegendUpload = document.getElementById('btnClearLegendUpload');
+  const btnStartCrop = document.getElementById('btnStartCrop');
+  const legendCropPreview = document.getElementById('legendCropPreview');
+  const legendCropCanvas = document.getElementById('legendCropCanvas');
+  const cropSizeText = document.getElementById('cropSizeText');
+  const legendProgress = document.getElementById('legendProgress');
+  const legendProgressBar = document.getElementById('legendProgressBar');
+  const legendProgressText = document.getElementById('legendProgressText');
+  const legendResults = document.getElementById('legendResults');
+  const legendResultsList = document.getElementById('legendResultsList');
+  const legendResultsCount = document.getElementById('legendResultsCount');
+  const legendModalCancel = document.getElementById('legendModalCancel');
+  const legendModalParse = document.getElementById('legendModalParse');
+  const legendModalConfirm = document.getElementById('legendModalConfirm');
 
   const scanProgress = document.getElementById('scanProgress');
   const scanProgressBar = document.getElementById('scanProgressBar');
@@ -96,6 +133,7 @@
       nextMarkerId = 1;
       nextColorId = 1;
       imageData = null;
+      cropRect = null;
       uploadArea.style.display = 'none';
       viewerContainer.style.display = 'flex';
       drawImage();
@@ -103,7 +141,7 @@
       renderMarkers();
       renderColorEntries();
       clearHighlight();
-      // Load saved project
+      hideCropSelection();
       const saved = localStorage.getItem('gardenViz_' + file.name);
       if (saved) {
         try {
@@ -149,23 +187,61 @@
     canvas.style.transform = t;
     highlightCanvas.style.transform = t;
     overlay.style.transform = t;
+    if (cropRect) updateCropSelectionDisplay();
   }
 
   // ---- Pan & Zoom ----
   canvasWrap.addEventListener('mousedown', e => {
     if (pickingColor) return;
     if (e.target.classList.contains('marker')) return;
+
+    // Crop mode: start drawing selection
+    if (cropMode) {
+      e.preventDefault();
+      const rect = canvasWrap.getBoundingClientRect();
+      const imgX = (e.clientX - rect.left - offsetX) / scale;
+      const imgY = (e.clientY - rect.top - offsetY) / scale;
+      cropStart = { x: imgX, y: imgY };
+      cropDragging = true;
+      return;
+    }
+
     dragging = true;
     canvasWrap.classList.add('dragging');
     dragStart = { x: e.clientX, y: e.clientY, ox: offsetX, oy: offsetY };
   });
+
   window.addEventListener('mousemove', e => {
+    if (cropDragging && cropStart) {
+      const rect = canvasWrap.getBoundingClientRect();
+      const imgX = (e.clientX - rect.left - offsetX) / scale;
+      const imgY = (e.clientY - rect.top - offsetY) / scale;
+      const x = Math.min(cropStart.x, imgX);
+      const y = Math.min(cropStart.y, imgY);
+      const w = Math.abs(imgX - cropStart.x);
+      const h = Math.abs(imgY - cropStart.y);
+      cropRect = { x, y, w, h };
+      updateCropSelectionDisplay();
+      return;
+    }
     if (!dragging) return;
     offsetX = dragStart.ox + (e.clientX - dragStart.x);
     offsetY = dragStart.oy + (e.clientY - dragStart.y);
     applyTransform();
   });
-  window.addEventListener('mouseup', () => { dragging = false; canvasWrap.classList.remove('dragging'); });
+
+  window.addEventListener('mouseup', () => {
+    if (cropDragging) {
+      cropDragging = false;
+      if (cropRect && cropRect.w > 10 && cropRect.h > 10) {
+        // Crop completed - extract the region
+        finishCropSelection();
+      }
+      return;
+    }
+    dragging = false;
+    canvasWrap.classList.remove('dragging');
+  });
 
   canvasWrap.addEventListener('wheel', e => {
     e.preventDefault();
@@ -188,6 +264,7 @@
     fileInput.value = '';
     image = null;
     imageData = null;
+    exitCropMode();
   });
 
   function zoomCenter(factor) {
@@ -200,8 +277,64 @@
     applyTransform();
   }
 
-  // ---- Color Picking ----
+  // ---- Crop Selection ----
+  function updateCropSelectionDisplay() {
+    if (!cropRect) return;
+    cropSelection.style.display = 'block';
+    cropSelection.style.left = (cropRect.x * scale + offsetX) + 'px';
+    cropSelection.style.top = (cropRect.y * scale + offsetY) + 'px';
+    cropSelection.style.width = (cropRect.w * scale) + 'px';
+    cropSelection.style.height = (cropRect.h * scale) + 'px';
+  }
+
+  function hideCropSelection() {
+    cropSelection.style.display = 'none';
+    cropRect = null;
+  }
+
+  function enterCropMode() {
+    cropMode = true;
+    canvasWrap.classList.add('picking'); // crosshair cursor
+    btnParseLegend.classList.add('active');
+    hideCropSelection();
+  }
+
+  function exitCropMode() {
+    cropMode = false;
+    cropDragging = false;
+    canvasWrap.classList.remove('picking');
+    btnParseLegend.classList.remove('active');
+    hideCropSelection();
+  }
+
+  function finishCropSelection() {
+    // Extract cropped region from plan canvas
+    const cx = Math.max(0, Math.round(cropRect.x));
+    const cy = Math.max(0, Math.round(cropRect.y));
+    const cw = Math.min(Math.round(cropRect.w), image.width - cx);
+    const ch = Math.min(Math.round(cropRect.h), image.height - cy);
+
+    const cropCanvas = document.createElement('canvas');
+    cropCanvas.width = cw;
+    cropCanvas.height = ch;
+    cropCanvas.getContext('2d').drawImage(canvas, cx, cy, cw, ch, 0, 0, cw, ch);
+
+    legendImageSource = cropCanvas;
+    exitCropMode();
+
+    // Show the legend modal with the crop preview
+    showLegendModal('crop');
+    legendCropPreview.style.display = 'block';
+    legendCropCanvas.width = cw;
+    legendCropCanvas.height = ch;
+    legendCropCanvas.getContext('2d').drawImage(cropCanvas, 0, 0);
+    cropSizeText.textContent = `${cw} x ${ch} pixels`;
+    legendModalParse.disabled = false;
+  }
+
+  // ---- Color Picking (manual) ----
   btnPickColor.addEventListener('click', () => {
+    if (cropMode) exitCropMode();
     pickingColor = !pickingColor;
     btnPickColor.classList.toggle('active', pickingColor);
     canvasWrap.classList.toggle('picking', pickingColor);
@@ -218,16 +351,13 @@
     const rgb = ColorScanner.sampleColor(ctx, imgX, imgY, 3);
     pendingColor = rgb;
 
-    // Show modal
     modalSwatch.style.backgroundColor = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
     modalColorText.textContent = `RGB(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
     modalPlantName.value = '';
     colorModal.style.display = 'flex';
     modalPlantName.focus();
 
-    // Show highlight preview
     const tol = parseInt(tolSlider.value);
-    ColorScanner.drawHighlight(getImageData(), rgb, tol, highlightCtx, [255, 255, 0]);
     highlightCanvas.width = image.width;
     highlightCanvas.height = image.height;
     ColorScanner.drawHighlight(getImageData(), rgb, tol, highlightCtx, [255, 255, 0]);
@@ -265,10 +395,196 @@
     if (e.key === 'Escape') modalCancel.click();
   });
 
+  // ---- Legend Parse Modal ----
+  btnParseLegend.addEventListener('click', () => {
+    if (cropMode) { exitCropMode(); return; }
+    showLegendModal('upload');
+  });
+
+  function showLegendModal(tab) {
+    legendModal.style.display = 'flex';
+    resetLegendModal();
+    switchLegendTab(tab || 'upload');
+    // If we already have a crop, show it
+    if (tab === 'crop' && legendImageSource instanceof HTMLCanvasElement) {
+      legendModalParse.disabled = false;
+    }
+  }
+
+  function resetLegendModal() {
+    legendProgress.style.display = 'none';
+    legendResults.style.display = 'none';
+    legendModalParse.style.display = 'inline-block';
+    legendModalConfirm.style.display = 'none';
+    legendModalParse.disabled = true;
+    parsedEntries = [];
+  }
+
+  // Tab switching
+  legendTabs.forEach(tab => {
+    tab.addEventListener('click', () => switchLegendTab(tab.dataset.tab));
+  });
+
+  function switchLegendTab(tabName) {
+    legendTabs.forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
+    legendTabUpload.style.display = tabName === 'upload' ? 'block' : 'none';
+    legendTabCrop.style.display = tabName === 'crop' ? 'block' : 'none';
+  }
+
+  // Upload legend image
+  legendUploadZone.addEventListener('click', () => legendFileInput.click());
+  legendUploadZone.addEventListener('dragover', e => { e.preventDefault(); legendUploadZone.classList.add('dragover'); });
+  legendUploadZone.addEventListener('dragleave', () => legendUploadZone.classList.remove('dragover'));
+  legendUploadZone.addEventListener('drop', e => {
+    e.preventDefault();
+    legendUploadZone.classList.remove('dragover');
+    if (e.dataTransfer.files[0]) loadLegendFile(e.dataTransfer.files[0]);
+  });
+  legendFileInput.addEventListener('change', e => {
+    if (e.target.files[0]) loadLegendFile(e.target.files[0]);
+  });
+
+  function loadLegendFile(file) {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      legendImageSource = img;
+      legendPreviewImg.src = url;
+      legendUploadPreview.style.display = 'block';
+      legendUploadZone.style.display = 'none';
+      legendModalParse.disabled = false;
+    };
+    img.src = url;
+  }
+
+  btnClearLegendUpload.addEventListener('click', () => {
+    legendImageSource = null;
+    legendUploadPreview.style.display = 'none';
+    legendUploadZone.style.display = 'block';
+    legendFileInput.value = '';
+    legendModalParse.disabled = true;
+  });
+
+  // Start crop from plan
+  btnStartCrop.addEventListener('click', () => {
+    legendModal.style.display = 'none';
+    enterCropMode();
+  });
+
+  // Cancel legend modal
+  legendModalCancel.addEventListener('click', () => {
+    legendModal.style.display = 'none';
+    legendImageSource = null;
+    parsedEntries = [];
+  });
+
+  // Parse button
+  legendModalParse.addEventListener('click', async () => {
+    if (!legendImageSource) return;
+
+    legendModalParse.disabled = true;
+    legendProgress.style.display = 'block';
+    legendResults.style.display = 'none';
+
+    try {
+      parsedEntries = await LegendParser.parse(legendImageSource, progress => {
+        legendProgressText.textContent = progress.message || 'Processing...';
+        const pct = progress.progress || 0;
+        legendProgressBar.style.width = pct + '%';
+      });
+    } catch (err) {
+      console.error('Legend parse error:', err);
+      legendProgressText.textContent = 'Error: ' + err.message;
+      legendModalParse.disabled = false;
+      return;
+    }
+
+    legendProgress.style.display = 'none';
+
+    if (parsedEntries.length === 0) {
+      legendResults.style.display = 'block';
+      legendResultsCount.textContent = '(0)';
+      legendResultsList.innerHTML = '<p class="no-entries">No plant entries detected. Try adjusting the image or use manual color picking.</p>';
+      legendModalParse.disabled = false;
+      return;
+    }
+
+    // Show editable results
+    legendResults.style.display = 'block';
+    legendResultsCount.textContent = `(${parsedEntries.length})`;
+    renderLegendResults();
+
+    legendModalParse.style.display = 'none';
+    legendModalConfirm.style.display = 'inline-block';
+  });
+
+  function renderLegendResults() {
+    legendResultsList.innerHTML = '';
+    parsedEntries.forEach((entry, i) => {
+      const row = document.createElement('div');
+      row.className = 'legend-result-row';
+      if (entry.confidence < 60) row.classList.add('low-confidence');
+
+      const swatch = document.createElement('div');
+      swatch.className = 'color-swatch';
+      if (entry.color) {
+        swatch.style.backgroundColor = `rgb(${entry.color[0]},${entry.color[1]},${entry.color[2]})`;
+      }
+
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.value = entry.name;
+      nameInput.placeholder = 'Plant name';
+      nameInput.setAttribute('list', 'plantSuggestions');
+      nameInput.addEventListener('change', () => {
+        parsedEntries[i].name = nameInput.value.trim();
+      });
+
+      const conf = document.createElement('span');
+      conf.className = 'legend-result-confidence';
+      conf.textContent = entry.confidence + '%';
+      conf.title = 'OCR confidence';
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'legend-result-remove';
+      removeBtn.textContent = '\u00d7';
+      removeBtn.addEventListener('click', () => {
+        parsedEntries.splice(i, 1);
+        legendResultsCount.textContent = `(${parsedEntries.length})`;
+        renderLegendResults();
+      });
+
+      row.appendChild(swatch);
+      row.appendChild(nameInput);
+      row.appendChild(conf);
+      row.appendChild(removeBtn);
+      legendResultsList.appendChild(row);
+    });
+  }
+
+  // Confirm: add all parsed entries to colorMap
+  legendModalConfirm.addEventListener('click', () => {
+    const validEntries = parsedEntries.filter(e => e.name && e.color);
+    validEntries.forEach(entry => {
+      colorMap.push({
+        id: nextColorId++,
+        color: entry.color,
+        name: entry.name,
+        dbKey: entry.name.toLowerCase(),
+        count: 0
+      });
+    });
+
+    legendModal.style.display = 'none';
+    legendImageSource = null;
+    parsedEntries = [];
+    renderColorEntries();
+    autoSave();
+  });
+
   // ---- Tolerance Slider ----
   tolSlider.addEventListener('input', () => {
     tolValue.textContent = tolSlider.value;
-    // If modal is open, update preview
     if (pendingColor && colorModal.style.display === 'flex') {
       ColorScanner.drawHighlight(getImageData(), pendingColor, parseInt(tolSlider.value), highlightCtx, [255, 255, 0]);
     }
@@ -293,16 +609,13 @@
         <button class="color-entry-scan" title="Scan for this color" data-id="${entry.id}">Scan</button>
         <button class="color-entry-remove" title="Remove" data-id="${entry.id}">&times;</button>
       `;
-      // Hover to highlight
       el.addEventListener('mouseenter', () => {
         ColorScanner.drawHighlight(getImageData(), entry.color, parseInt(tolSlider.value), highlightCtx, [255, 255, 0]);
       });
       el.addEventListener('mouseleave', () => clearHighlight());
-
       colorEntries.appendChild(el);
     });
 
-    // Wire up scan/remove buttons
     colorEntries.querySelectorAll('.color-entry-scan').forEach(btn => {
       btn.addEventListener('click', e => {
         e.stopPropagation();
@@ -316,7 +629,6 @@
         e.stopPropagation();
         const id = parseInt(btn.dataset.id);
         colorMap = colorMap.filter(c => c.id !== id);
-        // Remove markers for this color
         markers = markers.filter(m => m.colorId !== id);
         renderColorEntries();
         renderMarkers();
@@ -338,7 +650,6 @@
     scanProgressText.textContent = `Scanning for ${entry.name}... 0%`;
     scanProgressBar.style.width = '0%';
 
-    // Remove old markers for this color entry
     markers = markers.filter(m => m.colorId !== entry.id);
 
     const blobs = await ColorScanner.scan(getImageData(), entry.color, tol, minBlob, pct => {
@@ -346,10 +657,9 @@
       scanProgressText.textContent = `Scanning for ${entry.name}... ${pct}%`;
     });
 
-    // Create markers from blobs
     const dbEntry = lookupPlant(entry.name);
     blobs.forEach(blob => {
-      const m = {
+      markers.push({
         id: nextMarkerId++,
         x: blob.x,
         y: blob.y,
@@ -366,8 +676,7 @@
         water: dbEntry ? dbEntry.water : '',
         notes: dbEntry ? dbEntry.notes : '',
         photos: dbEntry ? [...dbEntry.photos] : []
-      };
-      markers.push(m);
+      });
     });
 
     entry.count = blobs.length;
@@ -379,7 +688,7 @@
 
   btnScanAll.addEventListener('click', async () => {
     if (colorMap.length === 0) {
-      alert('Pick some colors from the legend first.');
+      alert('Add colors to the legend first using Parse Legend or Pick Color.');
       return;
     }
     for (const entry of colorMap) {
@@ -428,7 +737,6 @@
     fieldWater.value = m.water || '';
     fieldNotes.value = m.notes || '';
 
-    // Show color swatch
     if (m.markerColor) {
       markerColorSwatch.style.display = 'block';
       markerColorSwatch.style.backgroundColor = `rgb(${m.markerColor[0]},${m.markerColor[1]},${m.markerColor[2]})`;
@@ -436,7 +744,6 @@
       markerColorSwatch.style.display = 'none';
     }
 
-    // Photos
     plantPhotos.innerHTML = '';
     (m.photos || []).forEach(url => {
       const img = document.createElement('img');
@@ -449,7 +756,6 @@
     renderMarkers();
   }
 
-  // Auto-save fields on change
   [fieldCommon, fieldBotanical, fieldSize, fieldBloom, fieldNotes].forEach(el => {
     el.addEventListener('change', saveCurrentMarker);
   });
@@ -530,8 +836,14 @@
         btnPickColor.classList.remove('active');
         canvasWrap.classList.remove('picking');
       }
+      if (cropMode) {
+        exitCropMode();
+      }
       if (colorModal.style.display === 'flex') {
         modalCancel.click();
+      }
+      if (legendModal.style.display === 'flex') {
+        legendModalCancel.click();
       }
     }
   });

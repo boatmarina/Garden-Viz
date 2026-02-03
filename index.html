@@ -34,7 +34,8 @@
         <button id="btnZoomOut" title="Zoom Out">&minus;</button>
         <button id="btnFitView" title="Fit to View">Fit</button>
         <span class="separator"></span>
-        <button id="btnPickColor" title="Pick a color from the legend">Pick Color</button>
+        <button id="btnParseLegend" title="Auto-parse a legend image or region">Parse Legend</button>
+        <button id="btnPickColor" title="Pick a color from the legend manually">Pick Color</button>
         <button id="btnScanAll" title="Scan image for all mapped colors">Scan All</button>
         <span class="separator"></span>
         <button id="btnExport" title="Export project as JSON">Export</button>
@@ -48,7 +49,7 @@
         <!-- Left panel: Color Legend -->
         <aside class="legend-panel" id="legendPanel">
           <h3>Color Legend</h3>
-          <p class="legend-hint">Click <strong>Pick Color</strong>, then click a color on the plan's legend. Name the plant, and we'll find all instances.</p>
+          <p class="legend-hint">Use <strong>Parse Legend</strong> to auto-detect plants from a legend image, or <strong>Pick Color</strong> to map colors manually.</p>
           <div id="colorEntries"></div>
           <div class="tolerance-control">
             <label>Color Tolerance: <span id="tolValue">40</span></label>
@@ -60,6 +61,7 @@
         <div class="canvas-wrap" id="canvasWrap">
           <canvas id="planCanvas"></canvas>
           <canvas id="highlightCanvas"></canvas>
+          <div class="crop-selection" id="cropSelection" style="display:none;"></div>
           <div class="markers-overlay" id="markersOverlay"></div>
           <!-- Progress overlay -->
           <div class="scan-progress" id="scanProgress" style="display:none;">
@@ -74,7 +76,7 @@
         <aside class="detail-panel" id="detailPanel">
           <div class="panel-placeholder" id="panelPlaceholder">
             <p>Click on a plant marker to see its details.</p>
-            <p class="hint">Start by picking colors from the legend on the left.</p>
+            <p class="hint">Start by parsing the legend or picking colors manually.</p>
           </div>
           <div class="panel-content" id="panelContent" style="display:none;">
             <div class="panel-header">
@@ -164,10 +166,67 @@
         </div>
       </div>
     </div>
+
+    <!-- Legend parse modal -->
+    <div class="modal-backdrop" id="legendModal" style="display:none;">
+      <div class="modal legend-modal">
+        <h3>Parse Legend</h3>
+
+        <div class="legend-tabs">
+          <button class="legend-tab active" data-tab="upload">Upload Legend Image</button>
+          <button class="legend-tab" data-tab="crop">Select from Plan</button>
+        </div>
+
+        <!-- Tab: Upload separate legend -->
+        <div class="legend-tab-content" id="legendTabUpload">
+          <div class="legend-upload-zone" id="legendUploadZone">
+            <p>Drop a legend image here, or click to select</p>
+            <p class="hint">A cropped image of just the legend/key area</p>
+            <input type="file" id="legendFileInput" accept="image/*" hidden>
+          </div>
+          <div class="legend-preview" id="legendUploadPreview" style="display:none;">
+            <img id="legendPreviewImg" alt="Legend preview">
+            <button class="btn-small" id="btnClearLegendUpload">Clear</button>
+          </div>
+        </div>
+
+        <!-- Tab: Crop from plan -->
+        <div class="legend-tab-content" id="legendTabCrop" style="display:none;">
+          <p class="hint">Close this dialog, then draw a rectangle over the legend area on your plan. Click <strong>Parse Legend</strong> again when done.</p>
+          <button class="btn-save" id="btnStartCrop">Start Selecting</button>
+          <div class="legend-preview" id="legendCropPreview" style="display:none;">
+            <canvas id="legendCropCanvas"></canvas>
+            <p class="hint" id="cropSizeText"></p>
+          </div>
+        </div>
+
+        <!-- Parse progress -->
+        <div class="legend-progress" id="legendProgress" style="display:none;">
+          <div class="legend-progress-bar-track">
+            <div class="legend-progress-bar" id="legendProgressBar"></div>
+          </div>
+          <span class="legend-progress-text" id="legendProgressText">Initializing OCR...</span>
+        </div>
+
+        <!-- Parsed results -->
+        <div class="legend-results" id="legendResults" style="display:none;">
+          <h4>Detected Plants <span class="legend-results-count" id="legendResultsCount"></span></h4>
+          <div class="legend-results-list" id="legendResultsList"></div>
+        </div>
+
+        <div class="modal-buttons">
+          <button class="btn-cancel" id="legendModalCancel">Cancel</button>
+          <button class="btn-save" id="legendModalParse" disabled>Parse</button>
+          <button class="btn-save" id="legendModalConfirm" style="display:none;">Add All to Legend</button>
+        </div>
+      </div>
+    </div>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="plant-database.js"></script>
   <script src="color-scanner.js"></script>
+  <script src="legend-parser.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
