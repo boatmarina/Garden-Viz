@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Garden Viz - Interactive Landscape Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Garden Viz</h1>
+    <p class="subtitle">Interactive Landscape Plan Viewer</p>
+  </header>
+
+  <main>
+    <div class="upload-area" id="uploadArea">
+      <div class="upload-prompt" id="uploadPrompt">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <p>Drop a landscape plan image here, or click to upload</p>
+        <p class="hint">Supports PNG, JPG, PDF</p>
+        <input type="file" id="fileInput" accept="image/*,.pdf" hidden>
+      </div>
+    </div>
+
+    <div class="viewer-container" id="viewerContainer" style="display:none;">
+      <div class="toolbar">
+        <button id="btnZoomIn" title="Zoom In">+</button>
+        <button id="btnZoomOut" title="Zoom Out">&minus;</button>
+        <button id="btnFitView" title="Fit to View">Fit</button>
+        <span class="separator"></span>
+        <button id="btnAddMarker" title="Add Plant Marker">+ Plant</button>
+        <button id="btnExport" title="Export markers as JSON">Export</button>
+        <button id="btnImport" title="Import markers from JSON">Import</button>
+        <input type="file" id="importInput" accept=".json" hidden>
+        <span class="separator"></span>
+        <button id="btnNewImage" title="Load new image">New Image</button>
+      </div>
+
+      <div class="workspace">
+        <div class="canvas-wrap" id="canvasWrap">
+          <canvas id="planCanvas"></canvas>
+          <div class="markers-overlay" id="markersOverlay"></div>
+        </div>
+
+        <aside class="detail-panel" id="detailPanel">
+          <div class="panel-placeholder" id="panelPlaceholder">
+            <p>Click on a plant marker to see details, or click <strong>+ Plant</strong> then click the map to add one.</p>
+          </div>
+          <div class="panel-content" id="panelContent" style="display:none;">
+            <div class="panel-header">
+              <h2 id="plantName" contenteditable="true">Plant Name</h2>
+              <button class="btn-delete" id="btnDeleteMarker" title="Delete this marker">&times;</button>
+            </div>
+            <div class="field">
+              <label>Common Name</label>
+              <input type="text" id="fieldCommon" placeholder="e.g. Blue Fescue">
+            </div>
+            <div class="field">
+              <label>Botanical Name</label>
+              <input type="text" id="fieldBotanical" placeholder="e.g. Festuca glauca">
+            </div>
+            <div class="field">
+              <label>Type</label>
+              <select id="fieldType">
+                <option value="">— select —</option>
+                <option value="deciduous-tree">Deciduous Tree</option>
+                <option value="evergreen-tree">Evergreen Tree</option>
+                <option value="deciduous-shrub">Deciduous Shrub</option>
+                <option value="evergreen-shrub">Evergreen Shrub</option>
+                <option value="perennial">Perennial</option>
+                <option value="perennial-bulb">Perennial Bulb</option>
+                <option value="annual">Annual</option>
+                <option value="ornamental-grass">Ornamental Grass</option>
+                <option value="ground-cover">Ground Cover</option>
+                <option value="vine">Vine</option>
+                <option value="succulent">Succulent</option>
+                <option value="fern">Fern</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Mature Size</label>
+              <input type="text" id="fieldSize" placeholder="e.g. 2-3 ft tall, 2 ft wide">
+            </div>
+            <div class="field">
+              <label>Bloom Season</label>
+              <input type="text" id="fieldBloom" placeholder="e.g. Late Spring - Summer">
+            </div>
+            <div class="field">
+              <label>Sun Requirements</label>
+              <select id="fieldSun">
+                <option value="">— select —</option>
+                <option value="full-sun">Full Sun</option>
+                <option value="part-sun">Part Sun</option>
+                <option value="part-shade">Part Shade</option>
+                <option value="full-shade">Full Shade</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Water Needs</label>
+              <select id="fieldWater">
+                <option value="">— select —</option>
+                <option value="low">Low</option>
+                <option value="moderate">Moderate</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Notes</label>
+              <textarea id="fieldNotes" rows="3" placeholder="Any additional notes..."></textarea>
+            </div>
+            <div class="field">
+              <label>Photos</label>
+              <div class="photo-grid" id="photoGrid"></div>
+              <button class="btn-add-photo" id="btnAddPhoto">+ Add Photo URL</button>
+            </div>
+            <button class="btn-save" id="btnSave">Save Details</button>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
