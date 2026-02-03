@@ -13,6 +13,7 @@
   </header>
 
   <main>
+    <!-- Step 1: Upload -->
     <div class="upload-area" id="uploadArea">
       <div class="upload-prompt" id="uploadPrompt">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -21,40 +22,66 @@
           <line x1="12" y1="3" x2="12" y2="15"/>
         </svg>
         <p>Drop a landscape plan image here, or click to upload</p>
-        <p class="hint">Supports PNG, JPG, PDF</p>
-        <input type="file" id="fileInput" accept="image/*,.pdf" hidden>
+        <p class="hint">Supports PNG, JPG</p>
+        <input type="file" id="fileInput" accept="image/*" hidden>
       </div>
     </div>
 
+    <!-- Step 2: Viewer -->
     <div class="viewer-container" id="viewerContainer" style="display:none;">
       <div class="toolbar">
         <button id="btnZoomIn" title="Zoom In">+</button>
         <button id="btnZoomOut" title="Zoom Out">&minus;</button>
         <button id="btnFitView" title="Fit to View">Fit</button>
         <span class="separator"></span>
-        <button id="btnAddMarker" title="Add Plant Marker">+ Plant</button>
-        <button id="btnExport" title="Export markers as JSON">Export</button>
-        <button id="btnImport" title="Import markers from JSON">Import</button>
+        <button id="btnPickColor" title="Pick a color from the legend">Pick Color</button>
+        <button id="btnScanAll" title="Scan image for all mapped colors">Scan All</button>
+        <span class="separator"></span>
+        <button id="btnExport" title="Export project as JSON">Export</button>
+        <button id="btnImport" title="Import project from JSON">Import</button>
         <input type="file" id="importInput" accept=".json" hidden>
         <span class="separator"></span>
         <button id="btnNewImage" title="Load new image">New Image</button>
       </div>
 
       <div class="workspace">
+        <!-- Left panel: Color Legend -->
+        <aside class="legend-panel" id="legendPanel">
+          <h3>Color Legend</h3>
+          <p class="legend-hint">Click <strong>Pick Color</strong>, then click a color on the plan's legend. Name the plant, and we'll find all instances.</p>
+          <div id="colorEntries"></div>
+          <div class="tolerance-control">
+            <label>Color Tolerance: <span id="tolValue">40</span></label>
+            <input type="range" id="tolSlider" min="15" max="80" value="40">
+          </div>
+        </aside>
+
+        <!-- Canvas area -->
         <div class="canvas-wrap" id="canvasWrap">
           <canvas id="planCanvas"></canvas>
+          <canvas id="highlightCanvas"></canvas>
           <div class="markers-overlay" id="markersOverlay"></div>
+          <!-- Progress overlay -->
+          <div class="scan-progress" id="scanProgress" style="display:none;">
+            <div class="scan-progress-inner">
+              <div class="scan-progress-bar" id="scanProgressBar"></div>
+              <span id="scanProgressText">Scanning... 0%</span>
+            </div>
+          </div>
         </div>
 
+        <!-- Right panel: Plant Detail -->
         <aside class="detail-panel" id="detailPanel">
           <div class="panel-placeholder" id="panelPlaceholder">
-            <p>Click on a plant marker to see details, or click <strong>+ Plant</strong> then click the map to add one.</p>
+            <p>Click on a plant marker to see its details.</p>
+            <p class="hint">Start by picking colors from the legend on the left.</p>
           </div>
           <div class="panel-content" id="panelContent" style="display:none;">
             <div class="panel-header">
-              <h2 id="plantName" contenteditable="true">Plant Name</h2>
+              <h2 id="plantName">Plant Name</h2>
               <button class="btn-delete" id="btnDeleteMarker" title="Delete this marker">&times;</button>
             </div>
+            <div class="plant-photos" id="plantPhotos"></div>
             <div class="field">
               <label>Common Name</label>
               <input type="text" id="fieldCommon" placeholder="e.g. Blue Fescue">
@@ -66,7 +93,7 @@
             <div class="field">
               <label>Type</label>
               <select id="fieldType">
-                <option value="">— select —</option>
+                <option value="">-- select --</option>
                 <option value="deciduous-tree">Deciduous Tree</option>
                 <option value="evergreen-tree">Evergreen Tree</option>
                 <option value="deciduous-shrub">Deciduous Shrub</option>
@@ -92,7 +119,7 @@
             <div class="field">
               <label>Sun Requirements</label>
               <select id="fieldSun">
-                <option value="">— select —</option>
+                <option value="">-- select --</option>
                 <option value="full-sun">Full Sun</option>
                 <option value="part-sun">Part Sun</option>
                 <option value="part-shade">Part Shade</option>
@@ -102,7 +129,7 @@
             <div class="field">
               <label>Water Needs</label>
               <select id="fieldWater">
-                <option value="">— select —</option>
+                <option value="">-- select --</option>
                 <option value="low">Low</option>
                 <option value="moderate">Moderate</option>
                 <option value="high">High</option>
@@ -112,18 +139,35 @@
               <label>Notes</label>
               <textarea id="fieldNotes" rows="3" placeholder="Any additional notes..."></textarea>
             </div>
-            <div class="field">
-              <label>Photos</label>
-              <div class="photo-grid" id="photoGrid"></div>
-              <button class="btn-add-photo" id="btnAddPhoto">+ Add Photo URL</button>
-            </div>
-            <button class="btn-save" id="btnSave">Save Details</button>
+            <div class="marker-color-swatch" id="markerColorSwatch"></div>
           </div>
         </aside>
       </div>
     </div>
+
+    <!-- Color naming modal -->
+    <div class="modal-backdrop" id="colorModal" style="display:none;">
+      <div class="modal">
+        <h3>Name This Plant</h3>
+        <div class="modal-color-preview">
+          <div class="color-swatch-lg" id="modalSwatch"></div>
+          <span id="modalColorText"></span>
+        </div>
+        <div class="field">
+          <label>Plant Name</label>
+          <input type="text" id="modalPlantName" placeholder="e.g. Hydrangea" list="plantSuggestions" autocomplete="off">
+          <datalist id="plantSuggestions"></datalist>
+        </div>
+        <div class="modal-buttons">
+          <button class="btn-cancel" id="modalCancel">Cancel</button>
+          <button class="btn-save" id="modalConfirm">Add to Legend</button>
+        </div>
+      </div>
+    </div>
   </main>
 
+  <script src="plant-database.js"></script>
+  <script src="color-scanner.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
