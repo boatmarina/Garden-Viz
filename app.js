@@ -13,6 +13,8 @@
   let nextMarkerId = 1;
   let nextColorId = 1;
   let pendingColor = null;
+  let pendingTemplate = null; // Template captured when picking color
+  let pendingPickCoords = null; // Coordinates where color was picked
 
   // Crop selection state
   let cropMode = false;
@@ -350,12 +352,29 @@
 
     const rgb = ColorScanner.sampleColor(ctx, imgX, imgY, 3);
     pendingColor = rgb;
+    pendingPickCoords = { x: imgX, y: imgY };
+
+    // Capture pattern template (32x32 region around click point)
+    pendingTemplate = ColorScanner.captureTemplate(ctx, imgX, imgY, 32);
 
     modalSwatch.style.backgroundColor = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
     modalColorText.textContent = `RGB(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
     modalPlantName.value = '';
     colorModal.style.display = 'flex';
     modalPlantName.focus();
+
+    // Show template preview in modal
+    const templatePreview = document.getElementById('modalTemplatePreview');
+    if (templatePreview && pendingTemplate) {
+      templatePreview.innerHTML = '';
+      const previewCanvas = pendingTemplate.canvas.cloneNode(true);
+      previewCanvas.getContext('2d').drawImage(pendingTemplate.canvas, 0, 0);
+      previewCanvas.style.width = '48px';
+      previewCanvas.style.height = '48px';
+      previewCanvas.style.imageRendering = 'pixelated';
+      templatePreview.appendChild(previewCanvas);
+      templatePreview.style.display = 'block';
+    }
 
     const tol = parseInt(tolSlider.value);
     highlightCanvas.width = image.width;
@@ -370,21 +389,38 @@
   modalCancel.addEventListener('click', () => {
     colorModal.style.display = 'none';
     pendingColor = null;
+    pendingTemplate = null;
+    pendingPickCoords = null;
     clearHighlight();
   });
 
   modalConfirm.addEventListener('click', () => {
     const name = modalPlantName.value.trim();
     if (!name) { modalPlantName.focus(); return; }
-    colorMap.push({
+
+    // Build the color entry with template data
+    const entry = {
       id: nextColorId++,
       color: pendingColor,
       name: name,
       dbKey: name.toLowerCase(),
       count: 0
-    });
+    };
+
+    // Store template for pattern matching (canvas can't be serialized, so we store data URL)
+    if (pendingTemplate) {
+      entry.templateDataUrl = pendingTemplate.canvas.toDataURL();
+      entry.templateWidth = pendingTemplate.width;
+      entry.templateHeight = pendingTemplate.height;
+      // Store grayData as array for pattern matching (will be recreated on load)
+      entry.templateGrayData = Array.from(pendingTemplate.grayData);
+    }
+
+    colorMap.push(entry);
     colorModal.style.display = 'none';
     pendingColor = null;
+    pendingTemplate = null;
+    pendingPickCoords = null;
     clearHighlight();
     renderColorEntries();
     autoSave();
@@ -525,10 +561,19 @@
       row.className = 'legend-result-row';
       if (entry.confidence < 60) row.classList.add('low-confidence');
 
-      const swatch = document.createElement('div');
-      swatch.className = 'color-swatch';
-      if (entry.color) {
-        swatch.style.backgroundColor = `rgb(${entry.color[0]},${entry.color[1]},${entry.color[2]})`;
+      // Show template image if available, otherwise just color swatch
+      let swatchEl;
+      if (entry.templateDataUrl) {
+        swatchEl = document.createElement('img');
+        swatchEl.className = 'color-swatch-template';
+        swatchEl.src = entry.templateDataUrl;
+        swatchEl.title = 'Pattern template';
+      } else {
+        swatchEl = document.createElement('div');
+        swatchEl.className = 'color-swatch';
+        if (entry.color) {
+          swatchEl.style.backgroundColor = `rgb(${entry.color[0]},${entry.color[1]},${entry.color[2]})`;
+        }
       }
 
       const nameInput = document.createElement('input');
@@ -554,7 +599,7 @@
         renderLegendResults();
       });
 
-      row.appendChild(swatch);
+      row.appendChild(swatchEl);
       row.appendChild(nameInput);
       row.appendChild(conf);
       row.appendChild(removeBtn);
@@ -566,13 +611,23 @@
   legendModalConfirm.addEventListener('click', () => {
     const validEntries = parsedEntries.filter(e => e.name && e.color);
     validEntries.forEach(entry => {
-      colorMap.push({
+      const colorEntry = {
         id: nextColorId++,
         color: entry.color,
         name: entry.name,
         dbKey: entry.name.toLowerCase(),
         count: 0
-      });
+      };
+
+      // Include pattern template if available from legend parsing
+      if (entry.templateDataUrl) {
+        colorEntry.templateDataUrl = entry.templateDataUrl;
+        colorEntry.templateWidth = entry.templateWidth;
+        colorEntry.templateHeight = entry.templateHeight;
+        colorEntry.templateGrayData = entry.templateGrayData;
+      }
+
+      colorMap.push(colorEntry);
     });
 
     legendModal.style.display = 'none';
@@ -600,13 +655,19 @@
     colorMap.forEach(entry => {
       const el = document.createElement('div');
       el.className = 'color-entry';
+
+      // Create swatch that shows template if available, otherwise just color
+      const swatchHtml = entry.templateDataUrl
+        ? `<img class="color-swatch-template" src="${entry.templateDataUrl}" title="Pattern template">`
+        : `<div class="color-swatch" style="background:rgb(${entry.color[0]},${entry.color[1]},${entry.color[2]})"></div>`;
+
       el.innerHTML = `
-        <div class="color-swatch" style="background:rgb(${entry.color[0]},${entry.color[1]},${entry.color[2]})"></div>
+        ${swatchHtml}
         <div class="color-entry-info">
           <span class="color-entry-name">${entry.name}</span>
-          <span class="color-entry-count">${entry.count || 0} found</span>
+          <span class="color-entry-count">${entry.count || 0} found${entry.templateDataUrl ? ' (pattern)' : ''}</span>
         </div>
-        <button class="color-entry-scan" title="Scan for this color" data-id="${entry.id}">Scan</button>
+        <button class="color-entry-scan" title="Scan for this color${entry.templateDataUrl ? ' and pattern' : ''}" data-id="${entry.id}">Scan</button>
         <button class="color-entry-remove" title="Remove" data-id="${entry.id}">&times;</button>
       `;
       el.addEventListener('mouseenter', () => {
@@ -645,6 +706,7 @@
   async function scanSingleColor(entry) {
     const tol = parseInt(tolSlider.value);
     const minBlob = 30;
+    const patternThreshold = 0.35; // Minimum pattern match score
 
     scanProgress.style.display = 'flex';
     scanProgressText.textContent = `Scanning for ${entry.name}... 0%`;
@@ -652,10 +714,21 @@
 
     markers = markers.filter(m => m.colorId !== entry.id);
 
+    // Reconstruct template object if we have template data
+    let template = null;
+    if (entry.templateGrayData && entry.templateWidth && entry.templateHeight) {
+      template = {
+        grayData: new Float32Array(entry.templateGrayData),
+        width: entry.templateWidth,
+        height: entry.templateHeight
+      };
+    }
+
     const blobs = await ColorScanner.scan(getImageData(), entry.color, tol, minBlob, pct => {
       scanProgressBar.style.width = pct + '%';
-      scanProgressText.textContent = `Scanning for ${entry.name}... ${pct}%`;
-    });
+      const phase = template ? (pct < 80 ? 'color' : 'pattern') : 'color';
+      scanProgressText.textContent = `Scanning for ${entry.name} (${phase})... ${pct}%`;
+    }, template, patternThreshold);
 
     const dbEntry = lookupPlant(entry.name);
     blobs.forEach(blob => {

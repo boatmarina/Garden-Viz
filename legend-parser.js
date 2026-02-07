@@ -9,7 +9,7 @@ const LegendParser = (() => {
    * Parse a legend image and return color-to-name mappings.
    * @param {HTMLImageElement|HTMLCanvasElement} imageSource
    * @param {function} onProgress - ({status, progress, message})
-   * @returns {Promise<Array<{color: number[], name: string, confidence: number}>>}
+   * @returns {Promise<Array<{color: number[], name: string, confidence: number, templateDataUrl: string, templateWidth: number, templateHeight: number, templateGrayData: number[]}>>}
    */
   async function parse(imageSource, onProgress) {
     const canvas = renderToCanvas(imageSource);
@@ -24,8 +24,9 @@ const LegendParser = (() => {
       return [];
     }
 
-    // 2. Extract swatch color per row
+    // 2. Extract swatch color and pattern template per row
     const swatches = rows.map(row => extractSwatchColor(imgData, row));
+    const templates = rows.map(row => extractSwatchTemplate(canvas, row));
 
     // 3. Run OCR on the full legend image
     if (onProgress) onProgress({ status: 'ocr', progress: 0, message: 'Starting text recognition...' });
@@ -83,12 +84,22 @@ const LegendParser = (() => {
         ? textWords.reduce((s, w) => s + w.confidence, 0) / textWords.length
         : 0;
 
-      entries.push({
+      const entry = {
         color: swatches[i],
         name: name,
         confidence: Math.round(avgConfidence),
         rowBounds: row
-      });
+      };
+
+      // Add template data if available
+      if (templates[i]) {
+        entry.templateDataUrl = templates[i].dataUrl;
+        entry.templateWidth = templates[i].width;
+        entry.templateHeight = templates[i].height;
+        entry.templateGrayData = templates[i].grayData;
+      }
+
+      entries.push(entry);
     }
 
     if (onProgress) onProgress({ status: 'done', progress: 100, message: 'Done!' });
@@ -192,6 +203,63 @@ const LegendParser = (() => {
     }
     const n = pixels.length;
     return [Math.round(rSum / n), Math.round(gSum / n), Math.round(bSum / n)];
+  }
+
+  /**
+   * Extract a pattern template from the swatch area of a row.
+   * Captures a 32x32 region centered on the swatch for pattern matching.
+   * @param {HTMLCanvasElement} canvas - Source canvas
+   * @param {Object} row - Row bounds {yStart, yEnd}
+   * @returns {{dataUrl: string, width: number, height: number, grayData: number[]}|null}
+   */
+  function extractSwatchTemplate(canvas, row) {
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+
+    // Swatch is in the left portion of the row
+    const swatchWidth = Math.floor(width * 0.25);
+    const rowHeight = row.yEnd - row.yStart;
+
+    // Use a 32x32 template or smaller if the row is small
+    const templateSize = Math.min(32, rowHeight, swatchWidth);
+    if (templateSize < 8) return null;
+
+    // Center the template in the swatch area
+    const cx = Math.floor(swatchWidth / 2);
+    const cy = Math.floor((row.yStart + row.yEnd) / 2);
+
+    const halfSize = Math.floor(templateSize / 2);
+    const x0 = Math.max(0, cx - halfSize);
+    const y0 = Math.max(0, cy - halfSize);
+    const x1 = Math.min(width, x0 + templateSize);
+    const y1 = Math.min(canvas.height, y0 + templateSize);
+    const w = x1 - x0;
+    const h = y1 - y0;
+
+    if (w < 8 || h < 8) return null;
+
+    // Create template canvas
+    const templateCanvas = document.createElement('canvas');
+    templateCanvas.width = w;
+    templateCanvas.height = h;
+    const tCtx = templateCanvas.getContext('2d');
+    tCtx.drawImage(canvas, x0, y0, w, h, 0, 0, w, h);
+
+    // Convert to grayscale for pattern matching
+    const imgData = tCtx.getImageData(0, 0, w, h);
+    const grayData = [];
+    for (let i = 0; i < w * h; i++) {
+      const off = i * 4;
+      // Luminance formula
+      grayData.push(0.299 * imgData.data[off] + 0.587 * imgData.data[off + 1] + 0.114 * imgData.data[off + 2]);
+    }
+
+    return {
+      dataUrl: templateCanvas.toDataURL(),
+      width: w,
+      height: h,
+      grayData: grayData
+    };
   }
 
   /**
