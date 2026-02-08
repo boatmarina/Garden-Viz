@@ -355,12 +355,30 @@ canvas {
   gap: 6px;
   margin-bottom: 12px;
 }
+.plant-photos .photo-container {
+  position: relative;
+}
 .plant-photos img {
   width: 100%;
   aspect-ratio: 4/3;
   object-fit: cover;
   border-radius: 6px;
   border: 1px solid var(--border);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.plant-photos img:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  z-index: 1;
+}
+.plant-photos .loading-photos,
+.plant-photos .no-photos {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 16px;
+  text-align: center;
 }
 
 .marker-color-swatch {

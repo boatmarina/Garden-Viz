@@ -7,24 +7,20 @@
   let markers = [];
   let colorMap = [];
   let selectedId = null;
-  let pickingColor = false;
   let dragging = false;
   let dragStart = { x: 0, y: 0, ox: 0, oy: 0 };
   let nextMarkerId = 1;
   let nextColorId = 1;
-  let pendingColor = null;
-  let pendingTemplate = null; // Template captured when picking color
-  let pendingPickCoords = null; // Coordinates where color was picked
 
   // Crop selection state
   let cropMode = false;
   let cropDragging = false;
-  let cropRect = null; // {x, y, w, h} in image coords
+  let cropRect = null;
   let cropStart = null;
 
   // Legend modal state
-  let legendImageSource = null; // HTMLImageElement or HTMLCanvasElement ready for parsing
-  let parsedEntries = []; // Results from LegendParser
+  let legendImageSource = null;
+  let parsedEntries = [];
 
   // ---- DOM Refs ----
   const uploadArea = document.getElementById('uploadArea');
@@ -45,11 +41,7 @@
   const btnZoomOut = document.getElementById('btnZoomOut');
   const btnFitView = document.getElementById('btnFitView');
   const btnParseLegend = document.getElementById('btnParseLegend');
-  const btnPickColor = document.getElementById('btnPickColor');
   const btnScanAll = document.getElementById('btnScanAll');
-  const btnExport = document.getElementById('btnExport');
-  const btnImport = document.getElementById('btnImport');
-  const importInput = document.getElementById('importInput');
   const btnNewImage = document.getElementById('btnNewImage');
 
   const colorEntries = document.getElementById('colorEntries');
@@ -69,13 +61,6 @@
   const btnDeleteMarker = document.getElementById('btnDeleteMarker');
   const markerColorSwatch = document.getElementById('markerColorSwatch');
 
-  // Color modal
-  const colorModal = document.getElementById('colorModal');
-  const modalSwatch = document.getElementById('modalSwatch');
-  const modalColorText = document.getElementById('modalColorText');
-  const modalPlantName = document.getElementById('modalPlantName');
-  const modalCancel = document.getElementById('modalCancel');
-  const modalConfirm = document.getElementById('modalConfirm');
   const plantSuggestions = document.getElementById('plantSuggestions');
 
   // Legend modal
@@ -194,7 +179,6 @@
 
   // ---- Pan & Zoom ----
   canvasWrap.addEventListener('mousedown', e => {
-    if (pickingColor) return;
     if (e.target.classList.contains('marker')) return;
 
     // Crop mode: start drawing selection
@@ -236,7 +220,6 @@
     if (cropDragging) {
       cropDragging = false;
       if (cropRect && cropRect.w > 10 && cropRect.h > 10) {
-        // Crop completed - extract the region
         finishCropSelection();
       }
       return;
@@ -296,7 +279,7 @@
 
   function enterCropMode() {
     cropMode = true;
-    canvasWrap.classList.add('picking'); // crosshair cursor
+    canvasWrap.classList.add('picking');
     btnParseLegend.classList.add('active');
     hideCropSelection();
   }
@@ -310,7 +293,6 @@
   }
 
   function finishCropSelection() {
-    // Extract cropped region from plan canvas
     const cx = Math.max(0, Math.round(cropRect.x));
     const cy = Math.max(0, Math.round(cropRect.y));
     const cw = Math.min(Math.round(cropRect.w), image.width - cx);
@@ -324,7 +306,6 @@
     legendImageSource = cropCanvas;
     exitCropMode();
 
-    // Show the legend modal with the crop preview
     showLegendModal('crop');
     legendCropPreview.style.display = 'block';
     legendCropCanvas.width = cw;
@@ -333,103 +314,6 @@
     cropSizeText.textContent = `${cw} x ${ch} pixels`;
     legendModalParse.disabled = false;
   }
-
-  // ---- Color Picking (manual) ----
-  btnPickColor.addEventListener('click', () => {
-    if (cropMode) exitCropMode();
-    pickingColor = !pickingColor;
-    btnPickColor.classList.toggle('active', pickingColor);
-    canvasWrap.classList.toggle('picking', pickingColor);
-  });
-
-  canvasWrap.addEventListener('click', e => {
-    if (!pickingColor) return;
-    if (e.target.classList.contains('marker')) return;
-    const rect = canvasWrap.getBoundingClientRect();
-    const imgX = (e.clientX - rect.left - offsetX) / scale;
-    const imgY = (e.clientY - rect.top - offsetY) / scale;
-    if (imgX < 0 || imgY < 0 || imgX >= image.width || imgY >= image.height) return;
-
-    const rgb = ColorScanner.sampleColor(ctx, imgX, imgY, 3);
-    pendingColor = rgb;
-    pendingPickCoords = { x: imgX, y: imgY };
-
-    // Capture pattern template (32x32 region around click point)
-    pendingTemplate = ColorScanner.captureTemplate(ctx, imgX, imgY, 32);
-
-    modalSwatch.style.backgroundColor = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
-    modalColorText.textContent = `RGB(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
-    modalPlantName.value = '';
-    colorModal.style.display = 'flex';
-    modalPlantName.focus();
-
-    // Show template preview in modal
-    const templatePreview = document.getElementById('modalTemplatePreview');
-    if (templatePreview && pendingTemplate) {
-      templatePreview.innerHTML = '';
-      const previewCanvas = pendingTemplate.canvas.cloneNode(true);
-      previewCanvas.getContext('2d').drawImage(pendingTemplate.canvas, 0, 0);
-      previewCanvas.style.width = '48px';
-      previewCanvas.style.height = '48px';
-      previewCanvas.style.imageRendering = 'pixelated';
-      templatePreview.appendChild(previewCanvas);
-      templatePreview.style.display = 'block';
-    }
-
-    const tol = parseInt(tolSlider.value);
-    highlightCanvas.width = image.width;
-    highlightCanvas.height = image.height;
-    ColorScanner.drawHighlight(getImageData(), rgb, tol, highlightCtx, [255, 255, 0]);
-
-    pickingColor = false;
-    btnPickColor.classList.remove('active');
-    canvasWrap.classList.remove('picking');
-  });
-
-  modalCancel.addEventListener('click', () => {
-    colorModal.style.display = 'none';
-    pendingColor = null;
-    pendingTemplate = null;
-    pendingPickCoords = null;
-    clearHighlight();
-  });
-
-  modalConfirm.addEventListener('click', () => {
-    const name = modalPlantName.value.trim();
-    if (!name) { modalPlantName.focus(); return; }
-
-    // Build the color entry with template data
-    const entry = {
-      id: nextColorId++,
-      color: pendingColor,
-      name: name,
-      dbKey: name.toLowerCase(),
-      count: 0
-    };
-
-    // Store template for pattern matching (canvas can't be serialized, so we store data URL)
-    if (pendingTemplate) {
-      entry.templateDataUrl = pendingTemplate.canvas.toDataURL();
-      entry.templateWidth = pendingTemplate.width;
-      entry.templateHeight = pendingTemplate.height;
-      // Store grayData as array for pattern matching (will be recreated on load)
-      entry.templateGrayData = Array.from(pendingTemplate.grayData);
-    }
-
-    colorMap.push(entry);
-    colorModal.style.display = 'none';
-    pendingColor = null;
-    pendingTemplate = null;
-    pendingPickCoords = null;
-    clearHighlight();
-    renderColorEntries();
-    autoSave();
-  });
-
-  modalPlantName.addEventListener('keydown', e => {
-    if (e.key === 'Enter') modalConfirm.click();
-    if (e.key === 'Escape') modalCancel.click();
-  });
 
   // ---- Legend Parse Modal ----
   btnParseLegend.addEventListener('click', () => {
@@ -441,7 +325,6 @@
     legendModal.style.display = 'flex';
     resetLegendModal();
     switchLegendTab(tab || 'upload');
-    // If we already have a crop, show it
     if (tab === 'crop' && legendImageSource instanceof HTMLCanvasElement) {
       legendModalParse.disabled = false;
     }
@@ -456,7 +339,6 @@
     parsedEntries = [];
   }
 
-  // Tab switching
   legendTabs.forEach(tab => {
     tab.addEventListener('click', () => switchLegendTab(tab.dataset.tab));
   });
@@ -467,7 +349,6 @@
     legendTabCrop.style.display = tabName === 'crop' ? 'block' : 'none';
   }
 
-  // Upload legend image
   legendUploadZone.addEventListener('click', () => legendFileInput.click());
   legendUploadZone.addEventListener('dragover', e => { e.preventDefault(); legendUploadZone.classList.add('dragover'); });
   legendUploadZone.addEventListener('dragleave', () => legendUploadZone.classList.remove('dragover'));
@@ -501,20 +382,17 @@
     legendModalParse.disabled = true;
   });
 
-  // Start crop from plan
   btnStartCrop.addEventListener('click', () => {
     legendModal.style.display = 'none';
     enterCropMode();
   });
 
-  // Cancel legend modal
   legendModalCancel.addEventListener('click', () => {
     legendModal.style.display = 'none';
     legendImageSource = null;
     parsedEntries = [];
   });
 
-  // Parse button
   legendModalParse.addEventListener('click', async () => {
     if (!legendImageSource) return;
 
@@ -540,12 +418,11 @@
     if (parsedEntries.length === 0) {
       legendResults.style.display = 'block';
       legendResultsCount.textContent = '(0)';
-      legendResultsList.innerHTML = '<p class="no-entries">No plant entries detected. Try adjusting the image or use manual color picking.</p>';
+      legendResultsList.innerHTML = '<p class="no-entries">No plant entries detected. Try a clearer legend image.</p>';
       legendModalParse.disabled = false;
       return;
     }
 
-    // Show editable results
     legendResults.style.display = 'block';
     legendResultsCount.textContent = `(${parsedEntries.length})`;
     renderLegendResults();
@@ -561,7 +438,6 @@
       row.className = 'legend-result-row';
       if (entry.confidence < 60) row.classList.add('low-confidence');
 
-      // Show template image if available, otherwise just color swatch
       let swatchEl;
       if (entry.templateDataUrl) {
         swatchEl = document.createElement('img');
@@ -607,7 +483,6 @@
     });
   }
 
-  // Confirm: add all parsed entries to colorMap
   legendModalConfirm.addEventListener('click', () => {
     const validEntries = parsedEntries.filter(e => e.name && e.color);
     validEntries.forEach(entry => {
@@ -619,7 +494,6 @@
         count: 0
       };
 
-      // Include pattern template if available from legend parsing
       if (entry.templateDataUrl) {
         colorEntry.templateDataUrl = entry.templateDataUrl;
         colorEntry.templateWidth = entry.templateWidth;
@@ -640,9 +514,6 @@
   // ---- Tolerance Slider ----
   tolSlider.addEventListener('input', () => {
     tolValue.textContent = tolSlider.value;
-    if (pendingColor && colorModal.style.display === 'flex') {
-      ColorScanner.drawHighlight(getImageData(), pendingColor, parseInt(tolSlider.value), highlightCtx, [255, 255, 0]);
-    }
   });
 
   // ---- Color Legend Entries ----
@@ -656,7 +527,6 @@
       const el = document.createElement('div');
       el.className = 'color-entry';
 
-      // Create swatch that shows template if available, otherwise just color
       const swatchHtml = entry.templateDataUrl
         ? `<img class="color-swatch-template" src="${entry.templateDataUrl}" title="Pattern template">`
         : `<div class="color-swatch" style="background:rgb(${entry.color[0]},${entry.color[1]},${entry.color[2]})"></div>`;
@@ -665,9 +535,9 @@
         ${swatchHtml}
         <div class="color-entry-info">
           <span class="color-entry-name">${entry.name}</span>
-          <span class="color-entry-count">${entry.count || 0} found${entry.templateDataUrl ? ' (pattern)' : ''}</span>
+          <span class="color-entry-count">${entry.count || 0} found</span>
         </div>
-        <button class="color-entry-scan" title="Scan for this color${entry.templateDataUrl ? ' and pattern' : ''}" data-id="${entry.id}">Scan</button>
+        <button class="color-entry-scan" title="Scan for this plant" data-id="${entry.id}">Scan</button>
         <button class="color-entry-remove" title="Remove" data-id="${entry.id}">&times;</button>
       `;
       el.addEventListener('mouseenter', () => {
@@ -706,7 +576,6 @@
   async function scanSingleColor(entry) {
     const tol = parseInt(tolSlider.value);
     const minBlob = 30;
-    const patternThreshold = 0.35; // Minimum pattern match score
 
     scanProgress.style.display = 'flex';
     scanProgressText.textContent = `Scanning for ${entry.name}... 0%`;
@@ -714,21 +583,12 @@
 
     markers = markers.filter(m => m.colorId !== entry.id);
 
-    // Reconstruct template object if we have template data
-    let template = null;
-    if (entry.templateGrayData && entry.templateWidth && entry.templateHeight) {
-      template = {
-        grayData: new Float32Array(entry.templateGrayData),
-        width: entry.templateWidth,
-        height: entry.templateHeight
-      };
-    }
-
+    // Use color-only matching for reliability
+    // Pattern matching can be re-enabled in the future
     const blobs = await ColorScanner.scan(getImageData(), entry.color, tol, minBlob, pct => {
       scanProgressBar.style.width = pct + '%';
-      const phase = template ? (pct < 80 ? 'color' : 'pattern') : 'color';
-      scanProgressText.textContent = `Scanning for ${entry.name} (${phase})... ${pct}%`;
-    }, template, patternThreshold);
+      scanProgressText.textContent = `Scanning for ${entry.name}... ${pct}%`;
+    });
 
     const dbEntry = lookupPlant(entry.name);
     blobs.forEach(blob => {
@@ -748,7 +608,8 @@
         sun: dbEntry ? dbEntry.sun : '',
         water: dbEntry ? dbEntry.water : '',
         notes: dbEntry ? dbEntry.notes : '',
-        photos: dbEntry ? [...dbEntry.photos] : []
+        photos: [], // Will be fetched when selected
+        photosFetched: false
       });
     });
 
@@ -761,7 +622,7 @@
 
   btnScanAll.addEventListener('click', async () => {
     if (colorMap.length === 0) {
-      alert('Add colors to the legend first using Parse Legend or Pick Color.');
+      alert('Add colors to the legend first using Parse Legend.');
       return;
     }
     for (const entry of colorMap) {
@@ -794,7 +655,7 @@
   }
 
   // ---- Selection & Detail Panel ----
-  function selectMarker(id) {
+  async function selectMarker(id) {
     selectedId = id;
     const m = markers.find(m => m.id === id);
     if (!m) return;
@@ -817,16 +678,63 @@
       markerColorSwatch.style.display = 'none';
     }
 
+    // Show loading state for photos
+    plantPhotos.innerHTML = '<p class="loading-photos">Loading plant images...</p>';
+    renderMarkers();
+
+    // Fetch images if not already fetched
+    if (!m.photosFetched) {
+      const searchName = m.botanical || m.common || m.name;
+      try {
+        const images = await ImageFetcher.fetchImages(searchName);
+
+        // Combine closeup and full images
+        m.photos = [];
+        if (images.closeup.length > 0) {
+          m.photos.push(...images.closeup);
+        }
+        if (images.full.length > 0) {
+          m.photos.push(...images.full);
+        }
+        m.photosFetched = true;
+        autoSave();
+      } catch (err) {
+        console.warn('Failed to fetch images:', err);
+        m.photos = [];
+        m.photosFetched = true;
+      }
+    }
+
+    // Display photos
+    displayPhotos(m);
+  }
+
+  function displayPhotos(m) {
     plantPhotos.innerHTML = '';
-    (m.photos || []).forEach(url => {
+
+    if (!m.photos || m.photos.length === 0) {
+      plantPhotos.innerHTML = '<p class="no-photos">No photos found for this plant.</p>';
+      return;
+    }
+
+    m.photos.forEach((url, index) => {
+      const container = document.createElement('div');
+      container.className = 'photo-container';
+
       const img = document.createElement('img');
       img.src = url;
-      img.alt = m.common || m.name;
-      img.onerror = () => img.style.display = 'none';
-      plantPhotos.appendChild(img);
-    });
+      img.alt = `${m.common || m.name} - Photo ${index + 1}`;
+      img.loading = 'lazy';
+      img.onerror = () => container.style.display = 'none';
 
-    renderMarkers();
+      // Click to open full size
+      img.addEventListener('click', () => {
+        window.open(url, '_blank');
+      });
+
+      container.appendChild(img);
+      plantPhotos.appendChild(container);
+    });
   }
 
   [fieldCommon, fieldBotanical, fieldSize, fieldBloom, fieldNotes].forEach(el => {
@@ -847,6 +755,11 @@
     m.sun = fieldSun.value;
     m.water = fieldWater.value;
     m.notes = fieldNotes.value;
+
+    // If botanical name changed, reset photos to allow re-fetch
+    m.photosFetched = false;
+    m.photos = [];
+
     renderMarkers();
     autoSave();
   }
@@ -861,39 +774,6 @@
     autoSave();
   });
 
-  // ---- Export / Import ----
-  btnExport.addEventListener('click', () => {
-    const data = JSON.stringify({ colorMap, markers }, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'garden-project.json';
-    a.click();
-  });
-
-  btnImport.addEventListener('click', () => importInput.click());
-  importInput.addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      try {
-        const data = JSON.parse(ev.target.result);
-        if (data.colorMap) { colorMap = data.colorMap; nextColorId = Math.max(...colorMap.map(c => c.id), 0) + 1; }
-        if (data.markers) { markers = data.markers; nextMarkerId = Math.max(...markers.map(m => m.id), 0) + 1; }
-        selectedId = null;
-        panelContent.style.display = 'none';
-        panelPlaceholder.style.display = 'block';
-        renderMarkers();
-        renderColorEntries();
-        autoSave();
-      } catch (err) {
-        alert('Invalid JSON file');
-      }
-    };
-    reader.readAsText(file);
-  });
-
   // ---- Auto-save ----
   function autoSave() {
     const name = canvas.dataset.filename;
@@ -904,16 +784,8 @@
   // ---- Keyboard ----
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-      if (pickingColor) {
-        pickingColor = false;
-        btnPickColor.classList.remove('active');
-        canvasWrap.classList.remove('picking');
-      }
       if (cropMode) {
         exitCropMode();
-      }
-      if (colorModal.style.display === 'flex') {
-        modalCancel.click();
       }
       if (legendModal.style.display === 'flex') {
         legendModalCancel.click();

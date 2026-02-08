@@ -35,12 +35,7 @@
         <button id="btnFitView" title="Fit to View">Fit</button>
         <span class="separator"></span>
         <button id="btnParseLegend" title="Auto-parse a legend image or region">Parse Legend</button>
-        <button id="btnPickColor" title="Pick a color from the legend manually">Pick Color</button>
         <button id="btnScanAll" title="Scan image for all mapped colors">Scan All</button>
-        <span class="separator"></span>
-        <button id="btnExport" title="Export project as JSON">Export</button>
-        <button id="btnImport" title="Import project from JSON">Import</button>
-        <input type="file" id="importInput" accept=".json" hidden>
         <span class="separator"></span>
         <button id="btnNewImage" title="Load new image">New Image</button>
       </div>
@@ -49,7 +44,7 @@
         <!-- Left panel: Color Legend -->
         <aside class="legend-panel" id="legendPanel">
           <h3>Color Legend</h3>
-          <p class="legend-hint">Use <strong>Parse Legend</strong> to auto-detect plants from a legend image, or <strong>Pick Color</strong> to map colors manually.</p>
+          <p class="legend-hint">Use <strong>Parse Legend</strong> to auto-detect plants from a legend image.</p>
           <div id="colorEntries"></div>
           <div class="tolerance-control">
             <label>Color Tolerance: <span id="tolValue">40</span></label>
@@ -76,7 +71,7 @@
         <aside class="detail-panel" id="detailPanel">
           <div class="panel-placeholder" id="panelPlaceholder">
             <p>Click on a plant marker to see its details.</p>
-            <p class="hint">Start by parsing the legend or picking colors manually.</p>
+            <p class="hint">Start by parsing the legend to detect plants.</p>
           </div>
           <div class="panel-content" id="panelContent" style="display:none;">
             <div class="panel-header">
@@ -147,26 +142,8 @@
       </div>
     </div>
 
-    <!-- Color naming modal -->
-    <div class="modal-backdrop" id="colorModal" style="display:none;">
-      <div class="modal">
-        <h3>Name This Plant</h3>
-        <div class="modal-color-preview">
-          <div class="color-swatch-lg" id="modalSwatch"></div>
-          <div id="modalTemplatePreview" style="display:none;"></div>
-          <span id="modalColorText"></span>
-        </div>
-        <div class="field">
-          <label>Plant Name</label>
-          <input type="text" id="modalPlantName" placeholder="e.g. Hydrangea" list="plantSuggestions" autocomplete="off">
-          <datalist id="plantSuggestions"></datalist>
-        </div>
-        <div class="modal-buttons">
-          <button class="btn-cancel" id="modalCancel">Cancel</button>
-          <button class="btn-save" id="modalConfirm">Add to Legend</button>
-        </div>
-      </div>
-    </div>
+    <!-- Plant suggestions datalist for legend parsing -->
+    <datalist id="plantSuggestions"></datalist>
 
     <!-- Legend parse modal -->
     <div class="modal-backdrop" id="legendModal" style="display:none;">
@@ -228,6 +205,7 @@
   <script src="plant-database.js"></script>
   <script src="color-scanner.js"></script>
   <script src="legend-parser.js"></script>
+  <script src="image-fetcher.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
