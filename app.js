@@ -43,6 +43,13 @@
   const btnParseLegend = document.getElementById('btnParseLegend');
   const btnScanAll = document.getElementById('btnScanAll');
   const btnNewImage = document.getElementById('btnNewImage');
+  const btnToggleView = document.getElementById('btnToggleView');
+  const plantListView = document.getElementById('plantListView');
+  const plantListContent = document.getElementById('plantListContent');
+
+  // View state (for plant list view)
+  let currentView = 'map'; // 'map' or 'list'
+  const hasPlantListView = btnToggleView && plantListView && plantListContent;
 
   const colorEntries = document.getElementById('colorEntries');
   const tolSlider = document.getElementById('tolSlider');
@@ -175,6 +182,13 @@
     highlightCanvas.style.transform = t;
     overlay.style.transform = t;
     if (cropRect) updateCropSelectionDisplay();
+    updateMarkerScale();
+  }
+
+  // Update marker sizes to be inversely proportional to zoom
+  function updateMarkerScale() {
+    const markerScale = Math.min(1, 1 / scale);
+    overlay.style.setProperty('--marker-scale', markerScale);
   }
 
   // ---- Pan & Zoom ----
@@ -638,9 +652,19 @@
       el.className = 'marker' + (m.id === selectedId ? ' selected' : '');
       el.style.left = m.x + 'px';
       el.style.top = m.y + 'px';
-      if (m.markerColor) {
+
+      // Find the color entry to get the template
+      const colorEntry = colorMap.find(c => c.id === m.colorId);
+
+      // Use template pattern if available, otherwise solid color
+      if (colorEntry && colorEntry.templateDataUrl) {
+        el.style.backgroundImage = `url(${colorEntry.templateDataUrl})`;
+        el.style.backgroundSize = 'cover';
+        el.style.backgroundPosition = 'center';
+      } else if (m.markerColor) {
         el.style.backgroundColor = `rgb(${m.markerColor[0]},${m.markerColor[1]},${m.markerColor[2]})`;
       }
+
       el.dataset.id = m.id;
       const label = document.createElement('span');
       label.className = 'marker-label';
@@ -652,6 +676,7 @@
       });
       overlay.appendChild(el);
     });
+    updateMarkerScale();
   }
 
   // ---- Selection & Detail Panel ----
@@ -779,6 +804,175 @@
     const name = canvas.dataset.filename;
     if (!name) return;
     localStorage.setItem('gardenViz_' + name, JSON.stringify({ colorMap, markers }));
+  }
+
+  // ---- Plant List View ----
+  const plantTypes = {
+    'deciduous-tree': 'Deciduous Trees',
+    'evergreen-tree': 'Evergreen Trees',
+    'deciduous-shrub': 'Deciduous Shrubs',
+    'evergreen-shrub': 'Evergreen Shrubs',
+    'perennial': 'Perennials',
+    'perennial-bulb': 'Perennial Bulbs',
+    'annual': 'Annuals',
+    'ornamental-grass': 'Ornamental Grasses',
+    'ground-cover': 'Ground Covers',
+    'vine': 'Vines',
+    'succulent': 'Succulents',
+    'fern': 'Ferns',
+    '': 'Uncategorized'
+  };
+
+  if (hasPlantListView) {
+    btnToggleView.addEventListener('click', () => {
+      if (currentView === 'map') {
+        currentView = 'list';
+        btnToggleView.textContent = 'Map View';
+        canvasWrap.style.display = 'none';
+        plantListView.style.display = 'block';
+        renderPlantList();
+      } else {
+        currentView = 'map';
+        btnToggleView.textContent = 'Plant List';
+        canvasWrap.style.display = 'block';
+        plantListView.style.display = 'none';
+      }
+    });
+  }
+
+  function renderPlantList() {
+    if (!plantListContent) return;
+    plantListContent.innerHTML = '';
+
+    if (colorMap.length === 0) {
+      plantListContent.innerHTML = '<p class="no-entries">No plants in legend yet. Use Parse Legend to add plants.</p>';
+      return;
+    }
+
+    // Group plants by type
+    const groups = {};
+    colorMap.forEach(entry => {
+      const dbEntry = lookupPlant(entry.name);
+      const type = dbEntry ? dbEntry.type : '';
+      if (!groups[type]) groups[type] = [];
+      groups[type].push({ entry, dbEntry });
+    });
+
+    // Render each group
+    const typeOrder = Object.keys(plantTypes);
+    typeOrder.forEach(type => {
+      if (!groups[type] || groups[type].length === 0) return;
+
+      const section = document.createElement('div');
+      section.className = 'plant-list-section';
+
+      const header = document.createElement('h3');
+      header.className = 'plant-list-header';
+      header.textContent = plantTypes[type] || 'Other';
+      header.innerHTML += ` <span class="plant-list-count">(${groups[type].length})</span>`;
+      section.appendChild(header);
+
+      const list = document.createElement('div');
+      list.className = 'plant-list-items';
+
+      groups[type].forEach(({ entry, dbEntry }) => {
+        const item = document.createElement('div');
+        item.className = 'plant-list-item';
+        item.dataset.colorId = entry.id;
+
+        // Create swatch showing pattern or color
+        const swatch = entry.templateDataUrl
+          ? `<img class="plant-list-swatch" src="${entry.templateDataUrl}" alt="">`
+          : `<div class="plant-list-swatch" style="background:rgb(${entry.color[0]},${entry.color[1]},${entry.color[2]})"></div>`;
+
+        const common = dbEntry ? dbEntry.common : entry.name;
+        const botanical = dbEntry ? dbEntry.botanical : '';
+        const count = entry.count || 0;
+
+        item.innerHTML = `
+          ${swatch}
+          <div class="plant-list-info">
+            <span class="plant-list-name">${common}</span>
+            ${botanical ? `<span class="plant-list-botanical">${botanical}</span>` : ''}
+          </div>
+          <span class="plant-list-instances">${count} on map</span>
+        `;
+
+        item.addEventListener('click', () => selectPlantFromList(entry));
+        list.appendChild(item);
+      });
+
+      section.appendChild(list);
+      plantListContent.appendChild(section);
+    });
+  }
+
+  async function selectPlantFromList(entry) {
+    // Show detail panel with plant info
+    const dbEntry = lookupPlant(entry.name);
+    panelPlaceholder.style.display = 'none';
+    panelContent.style.display = 'block';
+
+    const common = dbEntry ? dbEntry.common : entry.name;
+    plantName.textContent = common;
+    fieldCommon.value = common;
+    fieldBotanical.value = dbEntry ? dbEntry.botanical : '';
+    fieldType.value = dbEntry ? dbEntry.type : '';
+    fieldSize.value = dbEntry ? dbEntry.size : '';
+    fieldBloom.value = dbEntry ? dbEntry.bloom : '';
+    fieldSun.value = dbEntry ? dbEntry.sun : '';
+    fieldWater.value = dbEntry ? dbEntry.water : '';
+    fieldNotes.value = dbEntry ? dbEntry.notes : '';
+
+    // Show color/pattern swatch
+    if (entry.templateDataUrl) {
+      markerColorSwatch.style.display = 'block';
+      markerColorSwatch.style.backgroundImage = `url(${entry.templateDataUrl})`;
+      markerColorSwatch.style.backgroundSize = 'cover';
+      markerColorSwatch.style.backgroundColor = 'transparent';
+    } else if (entry.color) {
+      markerColorSwatch.style.display = 'block';
+      markerColorSwatch.style.backgroundImage = 'none';
+      markerColorSwatch.style.backgroundColor = `rgb(${entry.color[0]},${entry.color[1]},${entry.color[2]})`;
+    } else {
+      markerColorSwatch.style.display = 'none';
+    }
+
+    // Show loading for photos
+    plantPhotos.innerHTML = '<p class="loading-photos">Loading plant images...</p>';
+
+    // Fetch images
+    const searchName = (dbEntry ? dbEntry.botanical : '') || common || entry.name;
+    try {
+      const images = await ImageFetcher.fetchImages(searchName);
+      const photos = [...(images.closeup || []), ...(images.full || [])];
+
+      plantPhotos.innerHTML = '';
+      if (photos.length === 0) {
+        plantPhotos.innerHTML = '<p class="no-photos">No photos found for this plant.</p>';
+      } else {
+        photos.forEach((url, index) => {
+          const container = document.createElement('div');
+          container.className = 'photo-container';
+          const img = document.createElement('img');
+          img.src = url;
+          img.alt = `${common} - Photo ${index + 1}`;
+          img.loading = 'lazy';
+          img.onerror = () => container.style.display = 'none';
+          img.addEventListener('click', () => window.open(url, '_blank'));
+          container.appendChild(img);
+          plantPhotos.appendChild(container);
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to fetch images:', err);
+      plantPhotos.innerHTML = '<p class="no-photos">No photos found for this plant.</p>';
+    }
+
+    // Hide delete button in list view (no marker to delete)
+    if (hasPlantListView) {
+      btnDeleteMarker.style.display = currentView === 'list' ? 'none' : 'block';
+    }
   }
 
   // ---- Keyboard ----

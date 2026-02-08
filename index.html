@@ -37,6 +37,8 @@
         <button id="btnParseLegend" title="Auto-parse a legend image or region">Parse Legend</button>
         <button id="btnScanAll" title="Scan image for all mapped colors">Scan All</button>
         <span class="separator"></span>
+        <button id="btnToggleView" title="Toggle between map and plant list view">Plant List</button>
+        <span class="separator"></span>
         <button id="btnNewImage" title="Load new image">New Image</button>
       </div>
 
@@ -52,7 +54,7 @@
           </div>
         </aside>
 
-        <!-- Canvas area -->
+        <!-- Canvas area (Map View) -->
         <div class="canvas-wrap" id="canvasWrap">
           <canvas id="planCanvas"></canvas>
           <canvas id="highlightCanvas"></canvas>
@@ -64,6 +66,13 @@
               <div class="scan-progress-bar" id="scanProgressBar"></div>
               <span id="scanProgressText">Scanning... 0%</span>
             </div>
+          </div>
+        </div>
+
+        <!-- Plant List View -->
+        <div class="plant-list-view" id="plantListView" style="display:none;">
+          <div class="plant-list-content" id="plantListContent">
+            <p class="no-entries">No plants in legend yet. Use Parse Legend to add plants.</p>
           </div>
         </div>
 
