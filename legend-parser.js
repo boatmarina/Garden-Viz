@@ -267,17 +267,99 @@ const LegendParser = (() => {
    */
   function cleanOcrText(text) {
     if (!text) return '';
-    return text
-      // Remove leading/trailing punctuation and digits that are likely artifacts
-      .replace(/^[\d\W]+/, '')
-      .replace(/[\d\W]+$/, '')
-      // Collapse multiple spaces
-      .replace(/\s+/g, ' ')
-      // Fix common OCR mistakes
+
+    let cleaned = text;
+
+    // Fix common OCR mistakes first
+    cleaned = cleaned
       .replace(/[|]/g, 'l')
       .replace(/[0O](?=[a-z])/g, 'o')
-      .trim();
+      .replace(/\b1(?=[a-z])/gi, 'l');
+
+    // Remove container/pot sizes: #1, #2, #3, #5, #5t, #7, #10, #15, etc.
+    cleaned = cleaned.replace(/#\d+[a-z]?\b/gi, '');
+
+    // Remove gallon sizes: 1 gal, 3 gal, 5 gal, 1-gal, etc.
+    cleaned = cleaned.replace(/\d+[\s-]?gal(lon)?s?\b/gi, '');
+
+    // Remove inch/foot measurements: 18", 24", 6', 4-5', 12" o.c., etc.
+    cleaned = cleaned.replace(/\d+[-–]\d+['"]\s*(o\.?c\.?)?/gi, '');
+    cleaned = cleaned.replace(/\d+['"]\s*(o\.?c\.?)?/gi, '');
+    cleaned = cleaned.replace(/\d+\s*ft\.?\b/gi, '');
+    cleaned = cleaned.replace(/\d+\s*in\.?\b/gi, '');
+
+    // Remove size specs like "ht", "height", "spread", "wide", "tall"
+    cleaned = cleaned.replace(/\b\d+[-–]?\d*\s*(ht|height|spread|wide|tall|high)\b/gi, '');
+
+    // Remove quantity indicators: 10x, x5, (5), [5], qty 5, etc.
+    cleaned = cleaned.replace(/\bx\d+\b/gi, '');
+    cleaned = cleaned.replace(/\b\d+x\b/gi, '');
+    cleaned = cleaned.replace(/\(\d+\)/g, '');
+    cleaned = cleaned.replace(/\[\d+\]/g, '');
+    cleaned = cleaned.replace(/\bqty\.?\s*\d+/gi, '');
+
+    // Remove plant category labels (these are section headers, not part of the name)
+    const categoryLabels = [
+      'perennials?', 'annuals?', 'groundcovers?', 'ground\\s*covers?',
+      'shrubs?', 'trees?', 'grasses?', 'ornamental\\s*grasses?',
+      'vines?', 'ferns?', 'succulents?', 'bulbs?', 'evergreens?',
+      'deciduous', 'flowering', 'native', 'accent', 'specimen'
+    ];
+    const categoryRegex = new RegExp(`^(${categoryLabels.join('|')})\\s*[-–:]?\\s*`, 'gi');
+    cleaned = cleaned.replace(categoryRegex, '');
+
+    // Also remove if they appear at the end after a dash or colon
+    const endCategoryRegex = new RegExp(`\\s*[-–:]\\s*(${categoryLabels.join('|')})\\s*$`, 'gi');
+    cleaned = cleaned.replace(endCategoryRegex, '');
+
+    // Remove common non-name suffixes
+    cleaned = cleaned.replace(/\s*[-–]\s*(new|featured|native|recommended)\s*$/gi, '');
+
+    // Remove standalone single letters or numbers (often OCR artifacts)
+    cleaned = cleaned.replace(/\b[a-z]\b/gi, '');
+    cleaned = cleaned.replace(/\b\d{1,2}\b/g, '');
+
+    // Remove parenthetical notes that aren't cultivar names
+    // Keep things like 'Moonbeam' but remove things like '(sun)' or '(deer resistant)'
+    cleaned = cleaned.replace(/\([^)]*\b(sun|shade|water|deer|rabbit|drought|native|zone)\b[^)]*\)/gi, '');
+
+    // Clean up extra punctuation
+    cleaned = cleaned.replace(/[-–:,;]+\s*$/, '');
+    cleaned = cleaned.replace(/^[-–:,;]+\s*/, '');
+
+    // Collapse multiple spaces and trim
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+
+    return cleaned;
   }
 
-  return { parse, segmentRows, extractSwatchColor, renderToCanvas };
+  /**
+   * Extract the core plant name for database lookup.
+   * This is more aggressive than cleanOcrText - it tries to get just the essential name.
+   */
+  function extractCorePlantName(text) {
+    if (!text) return '';
+
+    // Start with the cleaned text
+    let core = cleanOcrText(text);
+
+    // Remove variety/cultivar names in quotes for lookup purposes
+    // (Keep them for display, but look up the base plant)
+    const withoutCultivar = core.replace(/['"][^'"]+['"]/g, '').trim();
+
+    // If removing cultivar leaves us with something reasonable, use it for lookup
+    if (withoutCultivar.length > 3) {
+      core = withoutCultivar;
+    }
+
+    // Remove common descriptive prefixes that aren't the plant name
+    core = core.replace(/^(dwarf|giant|miniature|variegated|golden|purple|red|blue|white|pink|yellow)\s+/gi, '');
+
+    // Collapse spaces again
+    core = core.replace(/\s+/g, ' ').trim();
+
+    return core;
+  }
+
+  return { parse, segmentRows, extractSwatchColor, renderToCanvas, cleanOcrText, extractCorePlantName };
 })();

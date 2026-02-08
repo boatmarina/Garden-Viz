@@ -653,16 +653,22 @@
       el.style.left = m.x + 'px';
       el.style.top = m.y + 'px';
 
-      // Find the color entry to get the template
+      // Find the color entry to get the template and color
       const colorEntry = colorMap.find(c => c.id === m.colorId);
 
-      // Use template pattern if available, otherwise solid color
+      // Get the color to display (from marker or color entry)
+      const displayColor = m.markerColor || (colorEntry && colorEntry.color);
+
+      // Always set a background color first (fallback)
+      if (displayColor) {
+        el.style.backgroundColor = `rgb(${displayColor[0]},${displayColor[1]},${displayColor[2]})`;
+      }
+
+      // Overlay with template pattern if available
       if (colorEntry && colorEntry.templateDataUrl) {
         el.style.backgroundImage = `url(${colorEntry.templateDataUrl})`;
         el.style.backgroundSize = 'cover';
         el.style.backgroundPosition = 'center';
-      } else if (m.markerColor) {
-        el.style.backgroundColor = `rgb(${m.markerColor[0]},${m.markerColor[1]},${m.markerColor[2]})`;
       }
 
       el.dataset.id = m.id;
