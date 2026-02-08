@@ -631,18 +631,93 @@ const PLANT_DB = {
 };
 
 /**
- * Look up a plant by name. Tries exact match first, then partial.
+ * Look up a plant by name. Tries multiple matching strategies.
  * Returns the DB entry or null.
  */
 function lookupPlant(name) {
   if (!name) return null;
-  const key = name.toLowerCase().trim();
+
+  // Clean the input name using LegendParser if available
+  let cleanName = name;
+  if (typeof LegendParser !== 'undefined' && LegendParser.extractCorePlantName) {
+    cleanName = LegendParser.extractCorePlantName(name);
+  } else if (typeof LegendParser !== 'undefined' && LegendParser.cleanOcrText) {
+    cleanName = LegendParser.cleanOcrText(name);
+  }
+
+  const key = cleanName.toLowerCase().trim();
+  const originalKey = name.toLowerCase().trim();
+
+  // 1. Exact match on cleaned name
   if (PLANT_DB[key]) return PLANT_DB[key];
-  // Partial match
+
+  // 2. Exact match on original name
+  if (PLANT_DB[originalKey]) return PLANT_DB[originalKey];
+
+  // 3. Check if any DB key is contained in the input or vice versa
   for (const k of Object.keys(PLANT_DB)) {
     if (k.includes(key) || key.includes(k)) return PLANT_DB[k];
+    if (k.includes(originalKey) || originalKey.includes(k)) return PLANT_DB[k];
   }
+
+  // 4. Word-based matching: check if any significant word matches
+  const words = key.split(/\s+/).filter(w => w.length > 2);
+  for (const word of words) {
+    // Skip common non-plant words
+    if (['the', 'and', 'for', 'with', 'new'].includes(word)) continue;
+
+    // Check for word match in DB keys
+    for (const k of Object.keys(PLANT_DB)) {
+      const dbWords = k.split(/\s+/);
+      if (dbWords.includes(word)) return PLANT_DB[k];
+      // Also check if word is a substantial part of a DB key
+      if (word.length >= 4 && k.includes(word)) return PLANT_DB[k];
+    }
+  }
+
+  // 5. Check botanical names
+  for (const k of Object.keys(PLANT_DB)) {
+    const entry = PLANT_DB[k];
+    if (entry.botanical) {
+      const botanical = entry.botanical.toLowerCase();
+      if (botanical.includes(key) || key.includes(botanical.split(' ')[0])) {
+        return entry;
+      }
+      // Check genus (first word of botanical name)
+      const genus = botanical.split(' ')[0];
+      if (genus.length > 3 && key.includes(genus)) {
+        return entry;
+      }
+    }
+  }
+
+  // 6. Fuzzy match: check for similar spellings (simple Levenshtein-ish)
+  for (const k of Object.keys(PLANT_DB)) {
+    if (similarEnough(key, k)) return PLANT_DB[k];
+  }
+
   return null;
+}
+
+/**
+ * Simple similarity check for fuzzy matching.
+ * Returns true if strings are similar enough (allowing for minor typos).
+ */
+function similarEnough(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return false;
+
+  // Check if strings share most characters
+  let matches = 0;
+  const shorter = a.length < b.length ? a : b;
+  const longer = a.length < b.length ? b : a;
+
+  for (let i = 0; i < shorter.length; i++) {
+    if (longer.includes(shorter[i])) matches++;
+  }
+
+  // Require at least 80% character match for short strings
+  const threshold = shorter.length < 5 ? 0.9 : 0.8;
+  return matches / shorter.length >= threshold && longer.startsWith(shorter.substring(0, 3));
 }
 
 /**

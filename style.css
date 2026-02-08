@@ -281,7 +281,8 @@ canvas {
   position: absolute;
   top: -22px;
   left: 50%;
-  transform: translateX(-50%) scale(calc(1 / var(--marker-scale, 1)));
+  /* Cap the inverse scale to prevent labels from becoming too large when zoomed in */
+  transform: translateX(-50%) scale(min(calc(1 / var(--marker-scale, 1)), 3));
   transform-origin: center bottom;
   white-space: nowrap;
   font-size: 11px;
