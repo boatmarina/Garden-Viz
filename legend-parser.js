@@ -84,6 +84,11 @@ const LegendParser = (() => {
         ? textWords.reduce((s, w) => s + w.confidence, 0) / textWords.length
         : 0;
 
+      // Skip entries with names that look like text fragments
+      if (!isValidPlantName(name)) {
+        continue;
+      }
+
       const entry = {
         color: swatches[i],
         name: name,
@@ -173,13 +178,17 @@ const LegendParser = (() => {
 
   /**
    * Extract the dominant swatch color from the left portion of a row.
+   * Returns null if no valid swatch is found.
    */
   function extractSwatchColor(imgData, row) {
     const { width, data } = imgData;
     const searchWidth = Math.floor(width * 0.35);
+    const rowHeight = row.yEnd - row.yStart;
 
-    // Collect all colored pixels in the left portion
+    // Find the bounding box of colored pixels in the left portion
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     const pixels = [];
+
     for (let y = row.yStart; y <= row.yEnd; y++) {
       for (let x = 0; x < searchWidth; x++) {
         const off = (y * width + x) * 4;
@@ -188,13 +197,37 @@ const LegendParser = (() => {
         // Skip white, near-white, black, near-black
         if (brightness > 225 || brightness < 30) continue;
         pixels.push([r, g, b]);
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
       }
     }
 
-    if (pixels.length < 5) return null;
+    if (pixels.length < 10) return null;
+
+    // Calculate swatch dimensions
+    const swatchWidth = maxX - minX + 1;
+    const swatchHeight = maxY - minY + 1;
+
+    // Validate that this looks like a proper swatch, not just colored text:
+    // 1. Swatch should have reasonable width (at least 15px or 10% of search area)
+    // 2. Swatch should be roughly square-ish or wider than tall (not a thin vertical line)
+    // 3. Swatch should fill a reasonable area
+    const minSwatchWidth = Math.max(15, searchWidth * 0.1);
+    const minSwatchHeight = Math.max(10, rowHeight * 0.3);
+    const aspectRatio = swatchWidth / swatchHeight;
+
+    if (swatchWidth < minSwatchWidth) return null;
+    if (swatchHeight < minSwatchHeight) return null;
+    if (aspectRatio < 0.3) return null; // Too narrow/vertical - probably text
+
+    // Check pixel density in the swatch area - real swatches should be fairly filled
+    const swatchArea = swatchWidth * swatchHeight;
+    const fillRatio = pixels.length / swatchArea;
+    if (fillRatio < 0.15) return null; // Too sparse - probably just scattered text pixels
 
     // Simple dominant color: average all colored pixels
-    // (Could use k-means for patterns, but average works for solid swatches)
     let rSum = 0, gSum = 0, bSum = 0;
     for (const [r, g, b] of pixels) {
       rSum += r;
@@ -260,6 +293,53 @@ const LegendParser = (() => {
       height: h,
       grayData: grayData
     };
+  }
+
+  /**
+   * Check if a name looks like a valid plant name, not a text fragment.
+   */
+  function isValidPlantName(name) {
+    if (!name || name.length < 3) return false;
+
+    // Name should start with a capital letter (proper plant name)
+    // or be all caps (some legends use that style)
+    const startsWithCapital = /^[A-Z]/.test(name);
+    const isAllCaps = name === name.toUpperCase() && /[A-Z]/.test(name);
+
+    if (!startsWithCapital && !isAllCaps) return false;
+
+    // Reject names that are just common words/fragments
+    const invalidPatterns = [
+      /^form\b/i,           // "form - white"
+      /^type\b/i,           // "type A"
+      /^color\b/i,          // "color: red"
+      /^size\b/i,           // "size: large"
+      /^var\.?\b/i,         // "var." or "variety"
+      /^cv\.?\b/i,          // "cv." (cultivar abbreviation alone)
+      /^sp\.?\b/i,          // "sp." or "species" alone
+      /^spp\.?\b/i,         // "spp." alone
+      /^or\b/i,             // "or similar"
+      /^and\b/i,            // "and white"
+      /^with\b/i,           // "with yellow"
+      /^[-–—]/,             // Starts with dash
+      /^\(/,                // Starts with parenthesis
+      /^\d/,                // Starts with number
+      /^[a-z]{1,3}\b/,      // Starts with 1-3 lowercase letters (likely fragment)
+    ];
+
+    for (const pattern of invalidPatterns) {
+      if (pattern.test(name)) return false;
+    }
+
+    // Reject very short names that are likely fragments
+    const words = name.split(/\s+/);
+    if (words.length === 1 && words[0].length < 4) return false;
+
+    // Reject if it's mostly punctuation or numbers
+    const alphaCount = (name.match(/[a-zA-Z]/g) || []).length;
+    if (alphaCount < name.length * 0.5) return false;
+
+    return true;
   }
 
   /**
