@@ -188,6 +188,9 @@
   function drawImage() {
     canvas.width = image.width;
     canvas.height = image.height;
+    // Use high quality image rendering
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(image, 0, 0);
   }
 
@@ -717,22 +720,15 @@
       el.style.left = m.x + 'px';
       el.style.top = m.y + 'px';
 
-      // Find the color entry to get the template and color
+      // Find the color entry to get the color
       const colorEntry = colorMap.find(c => c.id === m.colorId);
 
       // Get the color to display (from marker or color entry)
       const displayColor = m.markerColor || (colorEntry && colorEntry.color);
 
-      // Always set a background color first (fallback)
-      if (displayColor) {
+      // Set background color for the marker dot
+      if (displayColor && Array.isArray(displayColor) && displayColor.length >= 3) {
         el.style.backgroundColor = `rgb(${displayColor[0]},${displayColor[1]},${displayColor[2]})`;
-      }
-
-      // Overlay with template pattern if available
-      if (colorEntry && colorEntry.templateDataUrl) {
-        el.style.backgroundImage = `url(${colorEntry.templateDataUrl})`;
-        el.style.backgroundSize = 'cover';
-        el.style.backgroundPosition = 'center';
       }
 
       el.dataset.id = m.id;
@@ -950,10 +946,11 @@
         item.className = 'plant-list-item';
         item.dataset.colorId = entry.id;
 
-        // Create swatch showing pattern or color
-        const swatch = entry.templateDataUrl
-          ? `<img class="plant-list-swatch" src="${entry.templateDataUrl}" alt="">`
-          : `<div class="plant-list-swatch" style="background:rgb(${entry.color[0]},${entry.color[1]},${entry.color[2]})"></div>`;
+        // Create swatch showing the color from the legend
+        const color = entry.color;
+        const swatch = color && Array.isArray(color) && color.length >= 3
+          ? `<div class="plant-list-swatch" style="background:rgb(${color[0]},${color[1]},${color[2]})"></div>`
+          : `<div class="plant-list-swatch" style="background:#ccc"></div>`;
 
         const common = dbEntry ? dbEntry.common : entry.name;
         const botanical = dbEntry ? dbEntry.botanical : '';

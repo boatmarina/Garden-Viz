@@ -230,6 +230,14 @@ canvas {
   position: absolute;
   top: 0; left: 0;
   transform-origin: 0 0;
+  /* Optimize rendering during transforms */
+  will-change: transform;
+  image-rendering: auto;
+}
+
+#planCanvas {
+  /* Use high quality rendering for the main plan canvas */
+  image-rendering: -webkit-optimize-contrast;
 }
 
 #highlightCanvas {
