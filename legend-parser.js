@@ -178,17 +178,13 @@ const LegendParser = (() => {
 
   /**
    * Extract the dominant swatch color from the left portion of a row.
-   * Returns null if no valid swatch is found.
    */
   function extractSwatchColor(imgData, row) {
     const { width, data } = imgData;
     const searchWidth = Math.floor(width * 0.35);
-    const rowHeight = row.yEnd - row.yStart;
 
-    // Find the bounding box of colored pixels in the left portion
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    // Collect all colored pixels in the left portion
     const pixels = [];
-
     for (let y = row.yStart; y <= row.yEnd; y++) {
       for (let x = 0; x < searchWidth; x++) {
         const off = (y * width + x) * 4;
@@ -197,35 +193,10 @@ const LegendParser = (() => {
         // Skip white, near-white, black, near-black
         if (brightness > 225 || brightness < 30) continue;
         pixels.push([r, g, b]);
-        minX = Math.min(minX, x);
-        maxX = Math.max(maxX, x);
-        minY = Math.min(minY, y);
-        maxY = Math.max(maxY, y);
       }
     }
 
-    if (pixels.length < 10) return null;
-
-    // Calculate swatch dimensions
-    const swatchWidth = maxX - minX + 1;
-    const swatchHeight = maxY - minY + 1;
-
-    // Validate that this looks like a proper swatch, not just colored text:
-    // 1. Swatch should have reasonable width (at least 15px or 10% of search area)
-    // 2. Swatch should be roughly square-ish or wider than tall (not a thin vertical line)
-    // 3. Swatch should fill a reasonable area
-    const minSwatchWidth = Math.max(15, searchWidth * 0.1);
-    const minSwatchHeight = Math.max(10, rowHeight * 0.3);
-    const aspectRatio = swatchWidth / swatchHeight;
-
-    if (swatchWidth < minSwatchWidth) return null;
-    if (swatchHeight < minSwatchHeight) return null;
-    if (aspectRatio < 0.3) return null; // Too narrow/vertical - probably text
-
-    // Check pixel density in the swatch area - real swatches should be fairly filled
-    const swatchArea = swatchWidth * swatchHeight;
-    const fillRatio = pixels.length / swatchArea;
-    if (fillRatio < 0.15) return null; // Too sparse - probably just scattered text pixels
+    if (pixels.length < 5) return null;
 
     // Simple dominant color: average all colored pixels
     let rSum = 0, gSum = 0, bSum = 0;
