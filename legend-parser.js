@@ -84,8 +84,8 @@ const LegendParser = (() => {
         ? textWords.reduce((s, w) => s + w.confidence, 0) / textWords.length
         : 0;
 
-      // Skip entries with names that look like text fragments
-      if (!isValidPlantName(name)) {
+      // Skip entries with empty names or very short names
+      if (!name || name.length < 2) {
         continue;
       }
 
