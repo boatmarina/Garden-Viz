@@ -169,7 +169,7 @@ const ColorScanner = (() => {
         }
       }
 
-      // Step 2: Connected-component labeling (BFS)
+      // Step 2: Connected-component labeling (BFS) with 8-connectivity
       const visited = new Uint8Array(w * h);
       const blobs = [];
 
@@ -197,11 +197,18 @@ const ColorScanner = (() => {
           gSum += data[off + 1];
           bSum += data[off + 2];
 
+          // 8-connectivity: check all 8 neighbors
           const neighbors = [];
-          if (px > 0) neighbors.push(idx - 1);
-          if (px < w - 1) neighbors.push(idx + 1);
-          if (py > 0) neighbors.push(idx - w);
-          if (py < h - 1) neighbors.push(idx + w);
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const nx = px + dx;
+              const ny = py + dy;
+              if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                neighbors.push(ny * w + nx);
+              }
+            }
+          }
 
           for (const ni of neighbors) {
             if (!visited[ni] && mask[ni]) {
@@ -235,31 +242,36 @@ const ColorScanner = (() => {
           }
         }
         row = endRow;
-        if (onProgress) onProgress(Math.round((row / h) * 80)); // 80% for blob detection
+        if (onProgress) onProgress(Math.round((row / h) * 60)); // 60% for blob detection
         if (row < h) {
           setTimeout(processChunk, 0);
         } else {
-          // Step 3: Pattern matching (if template provided)
+          // Step 3: Merge nearby blobs
+          if (onProgress) onProgress(70);
+          const mergedBlobs = mergeNearbyBlobs(blobs);
+          if (onProgress) onProgress(80);
+
+          // Step 4: Pattern matching (if template provided)
           if (template && template.grayData) {
-            verifyPatterns();
+            verifyPatterns(mergedBlobs);
           } else {
             // No pattern matching, assign default score
-            blobs.forEach(b => b.patternScore = 1.0);
-            resolve(blobs);
+            mergedBlobs.forEach(b => b.patternScore = 1.0);
+            resolve(mergedBlobs);
           }
         }
       }
 
-      function verifyPatterns() {
+      function verifyPatterns(blobsToVerify) {
         const verified = [];
         const tw = template.width;
         const th = template.height;
         let processed = 0;
 
         function verifyChunk() {
-          const end = Math.min(processed + 50, blobs.length);
+          const end = Math.min(processed + 50, blobsToVerify.length);
           for (let i = processed; i < end; i++) {
-            const blob = blobs[i];
+            const blob = blobsToVerify[i];
             // Extract region around blob centroid
             const cx = Math.round(blob.x);
             const cy = Math.round(blob.y);
@@ -292,9 +304,9 @@ const ColorScanner = (() => {
             }
           }
           processed = end;
-          if (onProgress) onProgress(80 + Math.round((processed / blobs.length) * 20));
+          if (onProgress) onProgress(80 + Math.round((processed / blobsToVerify.length) * 20));
 
-          if (processed < blobs.length) {
+          if (processed < blobsToVerify.length) {
             setTimeout(verifyChunk, 0);
           } else {
             resolve(verified);
@@ -305,6 +317,125 @@ const ColorScanner = (() => {
 
       processChunk();
     });
+  }
+
+  /**
+   * Merge nearby blobs that likely belong to the same plant.
+   * Uses bounding box overlap and centroid distance to determine merging.
+   * @param {Array} blobs - Array of blob objects
+   * @returns {Array} Merged blobs
+   */
+  function mergeNearbyBlobs(blobs) {
+    if (blobs.length === 0) return blobs;
+
+    // Sort blobs by size (largest first) for better merge decisions
+    blobs.sort((a, b) => b.size - a.size);
+
+    // Calculate merge distance based on blob dimensions
+    // Blobs within this distance should be merged
+    const getMergeDistance = (blob) => {
+      const bw = blob.bounds.maxX - blob.bounds.minX;
+      const bh = blob.bounds.maxY - blob.bounds.minY;
+      // Merge distance is based on the blob's size - larger blobs have larger merge radius
+      return Math.max(30, Math.max(bw, bh) * 0.5);
+    };
+
+    // Check if two blobs should be merged
+    const shouldMerge = (a, b) => {
+      // Check bounding box overlap or proximity
+      const aExpand = getMergeDistance(a);
+      const bExpand = getMergeDistance(b);
+      const expand = Math.max(aExpand, bExpand);
+
+      // Expanded bounding boxes
+      const aMinX = a.bounds.minX - expand;
+      const aMaxX = a.bounds.maxX + expand;
+      const aMinY = a.bounds.minY - expand;
+      const aMaxY = a.bounds.maxY + expand;
+
+      const bMinX = b.bounds.minX;
+      const bMaxX = b.bounds.maxX;
+      const bMinY = b.bounds.minY;
+      const bMaxY = b.bounds.maxY;
+
+      // Check if bounding boxes overlap
+      const overlapX = aMinX <= bMaxX && aMaxX >= bMinX;
+      const overlapY = aMinY <= bMaxY && aMaxY >= bMinY;
+
+      return overlapX && overlapY;
+    };
+
+    // Union-find for merging
+    const parent = blobs.map((_, i) => i);
+
+    function find(i) {
+      if (parent[i] !== i) parent[i] = find(parent[i]);
+      return parent[i];
+    }
+
+    function union(i, j) {
+      const pi = find(i);
+      const pj = find(j);
+      if (pi !== pj) parent[pi] = pj;
+    }
+
+    // Find all pairs that should be merged
+    for (let i = 0; i < blobs.length; i++) {
+      for (let j = i + 1; j < blobs.length; j++) {
+        if (shouldMerge(blobs[i], blobs[j])) {
+          union(i, j);
+        }
+      }
+    }
+
+    // Group blobs by their root parent
+    const groups = {};
+    for (let i = 0; i < blobs.length; i++) {
+      const root = find(i);
+      if (!groups[root]) groups[root] = [];
+      groups[root].push(blobs[i]);
+    }
+
+    // Merge each group into a single blob
+    const merged = [];
+    for (const group of Object.values(groups)) {
+      if (group.length === 1) {
+        merged.push(group[0]);
+      } else {
+        // Compute merged properties
+        let totalSize = 0;
+        let sumX = 0, sumY = 0;
+        let rSum = 0, gSum = 0, bSum = 0;
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+        for (const blob of group) {
+          totalSize += blob.size;
+          sumX += blob.x * blob.size;
+          sumY += blob.y * blob.size;
+          rSum += blob.color[0] * blob.size;
+          gSum += blob.color[1] * blob.size;
+          bSum += blob.color[2] * blob.size;
+          minX = Math.min(minX, blob.bounds.minX);
+          maxX = Math.max(maxX, blob.bounds.maxX);
+          minY = Math.min(minY, blob.bounds.minY);
+          maxY = Math.max(maxY, blob.bounds.maxY);
+        }
+
+        merged.push({
+          x: sumX / totalSize,
+          y: sumY / totalSize,
+          size: totalSize,
+          color: [
+            Math.round(rSum / totalSize),
+            Math.round(gSum / totalSize),
+            Math.round(bSum / totalSize)
+          ],
+          bounds: { minX, maxX, minY, maxY }
+        });
+      }
+    }
+
+    return merged;
   }
 
   /**
