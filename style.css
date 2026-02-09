@@ -749,3 +749,18 @@ img.plant-list-swatch {
   color: var(--text-muted);
   white-space: nowrap;
 }
+
+/* Not found items styling */
+.plant-list-item.not-found {
+  opacity: 0.6;
+  background: #f5f5f5;
+}
+
+.plant-list-item.not-found:hover {
+  opacity: 0.8;
+}
+
+.not-found-header {
+  color: var(--text-muted);
+  border-bottom-color: var(--border);
+}

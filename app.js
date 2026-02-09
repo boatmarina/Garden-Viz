@@ -915,63 +915,89 @@
       return;
     }
 
-    // Group plants by type
-    const groups = {};
+    // Split entries into found and not found
+    const foundEntries = [];
+    const notFoundEntries = [];
+
     colorMap.forEach(entry => {
       const dbEntry = lookupPlant(entry.name);
-      const type = dbEntry ? dbEntry.type : '';
-      if (!groups[type]) groups[type] = [];
-      groups[type].push({ entry, dbEntry });
+      if (entry.count && entry.count > 0) {
+        foundEntries.push({ entry, dbEntry });
+      } else {
+        notFoundEntries.push({ entry, dbEntry });
+      }
     });
 
-    // Render each group
-    const typeOrder = Object.keys(plantTypes);
-    typeOrder.forEach(type => {
-      if (!groups[type] || groups[type].length === 0) return;
-
+    // Render "Found on Map" section
+    if (foundEntries.length > 0) {
       const section = document.createElement('div');
       section.className = 'plant-list-section';
 
       const header = document.createElement('h3');
       header.className = 'plant-list-header';
-      header.textContent = plantTypes[type] || 'Other';
-      header.innerHTML += ` <span class="plant-list-count">(${groups[type].length})</span>`;
+      header.innerHTML = `Found on Map <span class="plant-list-count">(${foundEntries.length})</span>`;
       section.appendChild(header);
 
       const list = document.createElement('div');
       list.className = 'plant-list-items';
 
-      groups[type].forEach(({ entry, dbEntry }) => {
-        const item = document.createElement('div');
-        item.className = 'plant-list-item';
-        item.dataset.colorId = entry.id;
-
-        // Create swatch showing the color from the legend
-        const color = entry.color;
-        const swatch = color && Array.isArray(color) && color.length >= 3
-          ? `<div class="plant-list-swatch" style="background:rgb(${color[0]},${color[1]},${color[2]})"></div>`
-          : `<div class="plant-list-swatch" style="background:#ccc"></div>`;
-
-        const common = dbEntry ? dbEntry.common : entry.name;
-        const botanical = dbEntry ? dbEntry.botanical : '';
-        const count = entry.count || 0;
-
-        item.innerHTML = `
-          ${swatch}
-          <div class="plant-list-info">
-            <span class="plant-list-name">${common}</span>
-            ${botanical ? `<span class="plant-list-botanical">${botanical}</span>` : ''}
-          </div>
-          <span class="plant-list-instances">${count} on map</span>
-        `;
-
-        item.addEventListener('click', () => selectPlantFromList(entry));
-        list.appendChild(item);
+      foundEntries.forEach(({ entry, dbEntry }) => {
+        list.appendChild(createPlantListItem(entry, dbEntry, true));
       });
 
       section.appendChild(list);
       plantListContent.appendChild(section);
-    });
+    }
+
+    // Render "Not Yet Found" section
+    if (notFoundEntries.length > 0) {
+      const section = document.createElement('div');
+      section.className = 'plant-list-section';
+
+      const header = document.createElement('h3');
+      header.className = 'plant-list-header not-found-header';
+      header.innerHTML = `Not Yet Found <span class="plant-list-count">(${notFoundEntries.length})</span>`;
+      section.appendChild(header);
+
+      const list = document.createElement('div');
+      list.className = 'plant-list-items';
+
+      notFoundEntries.forEach(({ entry, dbEntry }) => {
+        list.appendChild(createPlantListItem(entry, dbEntry, false));
+      });
+
+      section.appendChild(list);
+      plantListContent.appendChild(section);
+    }
+  }
+
+  function createPlantListItem(entry, dbEntry, isFound) {
+    const item = document.createElement('div');
+    item.className = 'plant-list-item' + (isFound ? '' : ' not-found');
+    item.dataset.colorId = entry.id;
+
+    // Create swatch showing the color from the legend
+    const color = entry.color;
+    const swatch = color && Array.isArray(color) && color.length >= 3
+      ? `<div class="plant-list-swatch" style="background:rgb(${color[0]},${color[1]},${color[2]})"></div>`
+      : `<div class="plant-list-swatch" style="background:#ccc"></div>`;
+
+    // Use the original legend name, with database info if available
+    const displayName = entry.name || 'Unknown';
+    const botanical = dbEntry ? dbEntry.botanical : '';
+    const count = entry.count || 0;
+
+    item.innerHTML = `
+      ${swatch}
+      <div class="plant-list-info">
+        <span class="plant-list-name">${displayName}</span>
+        ${botanical ? `<span class="plant-list-botanical">${botanical}</span>` : ''}
+      </div>
+      <span class="plant-list-instances">${isFound ? count + ' found' : 'not scanned'}</span>
+    `;
+
+    item.addEventListener('click', () => selectPlantFromList(entry));
+    return item;
   }
 
   async function selectPlantFromList(entry) {
