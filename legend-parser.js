@@ -378,6 +378,19 @@ const LegendParser = (() => {
     cleaned = cleaned.replace(/\[\d+\]/g, '');
     cleaned = cleaned.replace(/\bqty\.?\s*\d+/gi, '');
 
+    // Remove color/form variant suffixes like "form - purple", "- white", "form - red"
+    // Common colors in landscape plans
+    const colors = [
+      'white', 'pink', 'red', 'purple', 'blue', 'yellow', 'orange', 'green',
+      'lavender', 'coral', 'salmon', 'magenta', 'rose', 'cream', 'burgundy',
+      'scarlet', 'crimson', 'violet', 'lilac', 'gold', 'silver', 'bronze'
+    ];
+    const colorPattern = colors.join('|');
+    // Remove "form - color", "- color", "form color", etc.
+    cleaned = cleaned.replace(new RegExp(`\\s*[-–]?\\s*form\\s*[-–]\\s*(${colorPattern})\\s*$`, 'gi'), '');
+    cleaned = cleaned.replace(new RegExp(`\\s*[-–]\\s*(${colorPattern})\\s*$`, 'gi'), '');
+    cleaned = cleaned.replace(new RegExp(`\\s+form\\s*$`, 'gi'), '');
+
     // Remove plant category labels (these are section headers, not part of the name)
     const categoryLabels = [
       'perennials?', 'annuals?', 'groundcovers?', 'ground\\s*covers?',
