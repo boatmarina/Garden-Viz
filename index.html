@@ -21,9 +21,9 @@
           <polyline points="17 8 12 3 7 8"/>
           <line x1="12" y1="3" x2="12" y2="15"/>
         </svg>
-        <p>Drop a landscape plan image here, or click to upload</p>
-        <p class="hint">Supports PNG, JPG</p>
-        <input type="file" id="fileInput" accept="image/*" hidden>
+        <p>Drop a landscape plan here, or click to upload</p>
+        <p class="hint">Supports PNG, JPG, PDF</p>
+        <input type="file" id="fileInput" accept="image/*,.pdf,application/pdf" hidden>
       </div>
     </div>
 
@@ -169,7 +169,7 @@
           <div class="legend-upload-zone" id="legendUploadZone">
             <p>Drop a legend image here, or click to select</p>
             <p class="hint">A cropped image of just the legend/key area</p>
-            <input type="file" id="legendFileInput" accept="image/*" hidden>
+            <input type="file" id="legendFileInput" accept="image/*,.pdf,application/pdf" hidden>
           </div>
           <div class="legend-preview" id="legendUploadPreview" style="display:none;">
             <img id="legendPreviewImg" alt="Legend preview">
@@ -211,10 +211,19 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.min.mjs" type="module"></script>
+  <script>
+    // Make PDF.js available globally after module loads
+    import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.min.mjs').then(pdfjs => {
+      window.pdfjsLib = pdfjs;
+      pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+    });
+  </script>
   <script src="plant-database.js"></script>
   <script src="color-scanner.js"></script>
   <script src="legend-parser.js"></script>
   <script src="image-fetcher.js"></script>
+  <script src="pdf-parser.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

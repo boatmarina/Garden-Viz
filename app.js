@@ -116,39 +116,72 @@
     if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
   });
 
-  function loadFile(file) {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      image = img;
-      markers = [];
-      colorMap = [];
-      selectedId = null;
-      nextMarkerId = 1;
-      nextColorId = 1;
-      imageData = null;
-      cropRect = null;
-      uploadArea.style.display = 'none';
-      viewerContainer.style.display = 'flex';
-      drawImage();
-      fitView();
-      renderMarkers();
-      renderColorEntries();
-      clearHighlight();
-      hideCropSelection();
-      const saved = localStorage.getItem('gardenViz_' + file.name);
-      if (saved) {
-        try {
-          const data = JSON.parse(saved);
-          if (data.colorMap) { colorMap = data.colorMap; nextColorId = Math.max(...colorMap.map(c => c.id), 0) + 1; }
-          if (data.markers) { markers = data.markers; nextMarkerId = Math.max(...markers.map(m => m.id), 0) + 1; }
-          renderMarkers();
-          renderColorEntries();
-        } catch (_) {}
+  async function loadFile(file) {
+    let img;
+
+    // Check if file is a PDF
+    if (PdfParser.isPdf(file)) {
+      try {
+        // Show loading state
+        uploadPrompt.innerHTML = '<p>Loading PDF...</p>';
+        img = await PdfParser.pdfToImage(file, 2);
+      } catch (err) {
+        console.error('Failed to load PDF:', err);
+        uploadPrompt.innerHTML = `
+          <p>Failed to load PDF</p>
+          <p class="hint">${err.message}</p>
+        `;
+        setTimeout(() => {
+          uploadPrompt.innerHTML = `
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <p>Drop a landscape plan here, or click to upload</p>
+            <p class="hint">Supports PNG, JPG, PDF</p>
+          `;
+        }, 3000);
+        return;
       }
-      canvas.dataset.filename = file.name;
-    };
-    img.src = url;
+    } else {
+      // Load as regular image
+      const url = URL.createObjectURL(file);
+      img = await new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = url;
+      });
+    }
+
+    image = img;
+    markers = [];
+    colorMap = [];
+    selectedId = null;
+    nextMarkerId = 1;
+    nextColorId = 1;
+    imageData = null;
+    cropRect = null;
+    uploadArea.style.display = 'none';
+    viewerContainer.style.display = 'flex';
+    drawImage();
+    fitView();
+    renderMarkers();
+    renderColorEntries();
+    clearHighlight();
+    hideCropSelection();
+    const saved = localStorage.getItem('gardenViz_' + file.name);
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data.colorMap) { colorMap = data.colorMap; nextColorId = Math.max(...colorMap.map(c => c.id), 0) + 1; }
+        if (data.markers) { markers = data.markers; nextMarkerId = Math.max(...markers.map(m => m.id), 0) + 1; }
+        renderMarkers();
+        renderColorEntries();
+      } catch (_) {}
+    }
+    canvas.dataset.filename = file.name;
   }
 
   // ---- Canvas Drawing ----
@@ -375,7 +408,38 @@
     if (e.target.files[0]) loadLegendFile(e.target.files[0]);
   });
 
-  function loadLegendFile(file) {
+  async function loadLegendFile(file) {
+    // Check if file is a PDF
+    if (PdfParser.isPdf(file)) {
+      try {
+        legendUploadZone.innerHTML = '<p>Loading PDF...</p>';
+        const canvas = await PdfParser.pdfPageToCanvas(file, 1, 2);
+        legendImageSource = canvas;
+        legendPreviewImg.src = canvas.toDataURL('image/png');
+        legendUploadPreview.style.display = 'block';
+        legendUploadZone.style.display = 'none';
+        legendUploadZone.innerHTML = `
+          <p>Drop a legend image here, or click to select</p>
+          <p class="hint">A cropped image of just the legend/key area</p>
+        `;
+        legendModalParse.disabled = false;
+      } catch (err) {
+        console.error('Failed to load PDF:', err);
+        legendUploadZone.innerHTML = `
+          <p>Failed to load PDF: ${err.message}</p>
+          <p class="hint">Try uploading an image instead</p>
+        `;
+        setTimeout(() => {
+          legendUploadZone.innerHTML = `
+            <p>Drop a legend image here, or click to select</p>
+            <p class="hint">A cropped image of just the legend/key area</p>
+          `;
+        }, 3000);
+      }
+      return;
+    }
+
+    // Load as regular image
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
