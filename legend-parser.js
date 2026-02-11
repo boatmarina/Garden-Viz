@@ -1,12 +1,13 @@
 /**
  * Legend image parser.
- * Segments a legend image into rows, extracts color swatches,
+ * Detects color swatches across the entire image (supporting multi-column layouts),
  * and uses Tesseract.js OCR to read plant names.
  */
 const LegendParser = (() => {
 
   /**
    * Parse a legend image and return color-to-name mappings.
+   * Supports multi-column legends by detecting swatches anywhere in the image.
    * @param {HTMLImageElement|HTMLCanvasElement} imageSource
    * @param {function} onProgress - ({status, progress, message})
    * @returns {Promise<Array<{color: number[], name: string, confidence: number, templateDataUrl: string, templateWidth: number, templateHeight: number, templateGrayData: number[]}>>}
@@ -16,8 +17,368 @@ const LegendParser = (() => {
     const ctx = canvas.getContext('2d');
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-    if (onProgress) onProgress({ status: 'segmenting', progress: 0, message: 'Analyzing legend layout...' });
+    if (onProgress) onProgress({ status: 'segmenting', progress: 0, message: 'Detecting color swatches...' });
 
+    // 1. Detect all swatches across the entire image
+    const swatches = detectSwatches(imgData);
+    if (swatches.length === 0) {
+      // Fallback to row-based approach if no swatches detected
+      return await parseWithRows(canvas, imgData, onProgress);
+    }
+
+    // 2. Run OCR on the full legend image
+    if (onProgress) onProgress({ status: 'ocr', progress: 0, message: 'Starting text recognition...' });
+
+    let ocrResult;
+    try {
+      ocrResult = await Tesseract.recognize(canvas, 'eng', {
+        logger: m => {
+          if (m.status === 'recognizing text' && onProgress) {
+            onProgress({
+              status: 'ocr',
+              progress: Math.round(m.progress * 100),
+              message: `Recognizing text... ${Math.round(m.progress * 100)}%`
+            });
+          } else if (m.status && onProgress) {
+            onProgress({ status: 'ocr', progress: 0, message: m.status + '...' });
+          }
+        }
+      });
+    } catch (err) {
+      console.error('OCR failed:', err);
+      // Return entries with just colors, no names
+      return swatches.map(swatch => ({
+        color: swatch.color,
+        name: '',
+        confidence: 0,
+        bounds: swatch.bounds
+      }));
+    }
+
+    // 3. Associate each swatch with text to its right
+    const entries = [];
+    const words = ocrResult.data.words || [];
+
+    for (const swatch of swatches) {
+      // Find words that are to the right of this swatch and vertically aligned
+      const swatchCenterY = (swatch.bounds.minY + swatch.bounds.maxY) / 2;
+      const swatchHeight = swatch.bounds.maxY - swatch.bounds.minY;
+      const swatchRight = swatch.bounds.maxX;
+
+      // Find words that:
+      // 1. Start to the right of the swatch (with some tolerance)
+      // 2. Are vertically aligned with the swatch
+      // 3. Are reasonably close horizontally (not from another column)
+      const associatedWords = words.filter(w => {
+        const wordCenterY = (w.bbox.y0 + w.bbox.y1) / 2;
+        const wordLeft = w.bbox.x0;
+
+        // Vertical alignment: word center within swatch's vertical range (with padding)
+        const verticalPadding = swatchHeight * 0.75;
+        const verticallyAligned = wordCenterY >= swatch.bounds.minY - verticalPadding &&
+                                   wordCenterY <= swatch.bounds.maxY + verticalPadding;
+
+        // Horizontal position: word starts after swatch ends (with small tolerance)
+        // and is not too far away (max ~40% of image width)
+        const maxTextDistance = imgData.width * 0.4;
+        const horizontallyValid = wordLeft >= swatchRight - 5 &&
+                                   wordLeft <= swatchRight + maxTextDistance;
+
+        return verticallyAligned && horizontallyValid;
+      });
+
+      // Sort by horizontal position
+      associatedWords.sort((a, b) => a.bbox.x0 - b.bbox.x0);
+
+      // Group words that are close together horizontally (same line of text)
+      const textGroups = groupWordsIntoLines(associatedWords, swatchHeight);
+
+      // Take the first line as the plant name
+      const firstLine = textGroups[0] || [];
+      let name = firstLine.map(w => w.text).join(' ').trim();
+      name = cleanOcrText(name);
+
+      const avgConfidence = firstLine.length > 0
+        ? firstLine.reduce((s, w) => s + w.confidence, 0) / firstLine.length
+        : 0;
+
+      // Skip entries with invalid names
+      if (!name || name.length < 2) {
+        continue;
+      }
+
+      // Extract template from swatch region
+      const template = extractSwatchTemplateFromBounds(canvas, swatch.bounds);
+
+      const entry = {
+        color: swatch.color,
+        name: name,
+        confidence: Math.round(avgConfidence),
+        bounds: swatch.bounds
+      };
+
+      if (template) {
+        entry.templateDataUrl = template.dataUrl;
+        entry.templateWidth = template.width;
+        entry.templateHeight = template.height;
+        entry.templateGrayData = template.grayData;
+      }
+
+      entries.push(entry);
+    }
+
+    if (onProgress) onProgress({ status: 'done', progress: 100, message: 'Done!' });
+    return entries;
+  }
+
+  /**
+   * Detect colored rectangular regions (swatches) across the entire image.
+   * Uses connected-component labeling to find distinct colored regions.
+   */
+  function detectSwatches(imgData) {
+    const { width, height, data } = imgData;
+
+    // Create a mask of "colored" pixels (not white, not black, not gray)
+    const colorMask = new Uint8Array(width * height);
+    const colorValues = []; // Store RGB for each pixel
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
+        const off = idx * 4;
+        const r = data[off], g = data[off + 1], b = data[off + 2];
+
+        // Check if pixel is "colored" (not white/black/gray)
+        const brightness = (r + g + b) / 3;
+        const maxDiff = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(r - b));
+
+        // Consider it colored if:
+        // 1. Not too bright (white) or too dark (black)
+        // 2. Has some color saturation (not gray)
+        const isBrightEnough = brightness > 30 && brightness < 240;
+        const hasColor = maxDiff > 15 || (brightness > 50 && brightness < 200);
+
+        if (isBrightEnough && hasColor) {
+          colorMask[idx] = 1;
+          colorValues[idx] = [r, g, b];
+        }
+      }
+    }
+
+    // Connected-component labeling with 8-connectivity
+    const labels = new Int32Array(width * height);
+    const labelColors = new Map(); // label -> {pixels: [[r,g,b], ...], bounds: {minX, maxX, minY, maxY}}
+    let nextLabel = 1;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
+        if (colorMask[idx] === 0 || labels[idx] !== 0) continue;
+
+        // BFS flood fill
+        const queue = [[x, y]];
+        const label = nextLabel++;
+        let minX = x, maxX = x, minY = y, maxY = y;
+        const pixels = [];
+
+        while (queue.length > 0) {
+          const [cx, cy] = queue.shift();
+          const cIdx = cy * width + cx;
+
+          if (cx < 0 || cx >= width || cy < 0 || cy >= height) continue;
+          if (colorMask[cIdx] === 0 || labels[cIdx] !== 0) continue;
+
+          labels[cIdx] = label;
+          pixels.push(colorValues[cIdx]);
+
+          minX = Math.min(minX, cx);
+          maxX = Math.max(maxX, cx);
+          minY = Math.min(minY, cy);
+          maxY = Math.max(maxY, cy);
+
+          // 8-connectivity neighbors
+          queue.push([cx - 1, cy], [cx + 1, cy], [cx, cy - 1], [cx, cy + 1]);
+          queue.push([cx - 1, cy - 1], [cx + 1, cy - 1], [cx - 1, cy + 1], [cx + 1, cy + 1]);
+        }
+
+        labelColors.set(label, { pixels, bounds: { minX, maxX, minY, maxY } });
+      }
+    }
+
+    // Filter to regions that look like swatches
+    const swatches = [];
+    const minSwatchSize = 10; // Minimum dimension
+    const maxSwatchSize = Math.min(width, height) * 0.15; // Max 15% of image dimension
+    const minPixels = 50; // Minimum number of pixels
+
+    for (const [label, data] of labelColors) {
+      const { pixels, bounds } = data;
+      const w = bounds.maxX - bounds.minX;
+      const h = bounds.maxY - bounds.minY;
+
+      // Size filters
+      if (w < minSwatchSize || h < minSwatchSize) continue;
+      if (w > maxSwatchSize && h > maxSwatchSize) continue;
+      if (pixels.length < minPixels) continue;
+
+      // Aspect ratio filter: swatches are usually roughly square or slightly rectangular
+      const aspectRatio = Math.max(w, h) / Math.min(w, h);
+      if (aspectRatio > 5) continue; // Too elongated, probably not a swatch
+
+      // Fill ratio: swatches should be mostly filled
+      const area = w * h;
+      const fillRatio = pixels.length / area;
+      if (fillRatio < 0.3) continue; // Too sparse, probably not a solid swatch
+
+      // Calculate average color
+      let rSum = 0, gSum = 0, bSum = 0;
+      for (const [r, g, b] of pixels) {
+        rSum += r;
+        gSum += g;
+        bSum += b;
+      }
+      const n = pixels.length;
+      const avgColor = [Math.round(rSum / n), Math.round(gSum / n), Math.round(bSum / n)];
+
+      swatches.push({
+        color: avgColor,
+        bounds: bounds,
+        pixelCount: pixels.length
+      });
+    }
+
+    // Sort swatches by position: top to bottom, then left to right
+    swatches.sort((a, b) => {
+      const rowA = Math.floor(a.bounds.minY / 30);
+      const rowB = Math.floor(b.bounds.minY / 30);
+      if (rowA !== rowB) return rowA - rowB;
+      return a.bounds.minX - b.bounds.minX;
+    });
+
+    // Merge swatches that are very close and have similar colors
+    return mergeCloseSwatches(swatches);
+  }
+
+  /**
+   * Merge swatches that are close together and have similar colors.
+   */
+  function mergeCloseSwatches(swatches) {
+    if (swatches.length === 0) return swatches;
+
+    const merged = [];
+    const used = new Set();
+
+    for (let i = 0; i < swatches.length; i++) {
+      if (used.has(i)) continue;
+
+      let current = { ...swatches[i], bounds: { ...swatches[i].bounds } };
+      used.add(i);
+
+      // Look for nearby swatches with similar colors to merge
+      for (let j = i + 1; j < swatches.length; j++) {
+        if (used.has(j)) continue;
+
+        const other = swatches[j];
+
+        // Check if colors are similar
+        const colorDist = Math.sqrt(
+          Math.pow(current.color[0] - other.color[0], 2) +
+          Math.pow(current.color[1] - other.color[1], 2) +
+          Math.pow(current.color[2] - other.color[2], 2)
+        );
+
+        if (colorDist > 50) continue; // Colors too different
+
+        // Check if bounds are close
+        const gap = 10;
+        const close = !(other.bounds.minX > current.bounds.maxX + gap ||
+                       other.bounds.maxX < current.bounds.minX - gap ||
+                       other.bounds.minY > current.bounds.maxY + gap ||
+                       other.bounds.maxY < current.bounds.minY - gap);
+
+        if (close) {
+          // Merge bounds
+          current.bounds.minX = Math.min(current.bounds.minX, other.bounds.minX);
+          current.bounds.maxX = Math.max(current.bounds.maxX, other.bounds.maxX);
+          current.bounds.minY = Math.min(current.bounds.minY, other.bounds.minY);
+          current.bounds.maxY = Math.max(current.bounds.maxY, other.bounds.maxY);
+          current.pixelCount += other.pixelCount;
+          used.add(j);
+        }
+      }
+
+      merged.push(current);
+    }
+
+    return merged;
+  }
+
+  /**
+   * Group words into lines based on vertical position.
+   */
+  function groupWordsIntoLines(words, lineHeight) {
+    if (words.length === 0) return [];
+
+    const lines = [];
+    let currentLine = [words[0]];
+    let currentY = (words[0].bbox.y0 + words[0].bbox.y1) / 2;
+
+    for (let i = 1; i < words.length; i++) {
+      const word = words[i];
+      const wordY = (word.bbox.y0 + word.bbox.y1) / 2;
+
+      // If word is on roughly the same line
+      if (Math.abs(wordY - currentY) < lineHeight * 0.6) {
+        currentLine.push(word);
+      } else {
+        lines.push(currentLine);
+        currentLine = [word];
+        currentY = wordY;
+      }
+    }
+
+    if (currentLine.length > 0) {
+      lines.push(currentLine);
+    }
+
+    return lines;
+  }
+
+  /**
+   * Extract template from specific bounds.
+   */
+  function extractSwatchTemplateFromBounds(canvas, bounds) {
+    const ctx = canvas.getContext('2d');
+    const w = bounds.maxX - bounds.minX;
+    const h = bounds.maxY - bounds.minY;
+
+    if (w < 8 || h < 8) return null;
+
+    const templateCanvas = document.createElement('canvas');
+    templateCanvas.width = w;
+    templateCanvas.height = h;
+    const tCtx = templateCanvas.getContext('2d');
+    tCtx.drawImage(canvas, bounds.minX, bounds.minY, w, h, 0, 0, w, h);
+
+    const imgData = tCtx.getImageData(0, 0, w, h);
+    const grayData = [];
+    for (let i = 0; i < w * h; i++) {
+      const off = i * 4;
+      grayData.push(0.299 * imgData.data[off] + 0.587 * imgData.data[off + 1] + 0.114 * imgData.data[off + 2]);
+    }
+
+    return {
+      dataUrl: templateCanvas.toDataURL(),
+      width: w,
+      height: h,
+      grayData: grayData
+    };
+  }
+
+  /**
+   * Fallback: Parse using row-based approach for single-column legends.
+   */
+  async function parseWithRows(canvas, imgData, onProgress) {
     // 1. Find row regions
     const rows = segmentRows(imgData);
     if (rows.length === 0) {
@@ -48,7 +409,6 @@ const LegendParser = (() => {
       });
     } catch (err) {
       console.error('OCR failed:', err);
-      // Return entries with just colors, no names
       return rows.map((row, i) => ({
         color: swatches[i],
         name: '',
@@ -69,23 +429,19 @@ const LegendParser = (() => {
         return wordCenterY >= row.yStart && wordCenterY <= row.yEnd;
       });
 
-      // Sort words left to right
       wordsInRow.sort((a, b) => a.bbox.x0 - b.bbox.x0);
 
-      // Filter out words that overlap with the swatch area (left portion)
       const swatchEndX = Math.floor(imgData.width * 0.25);
       const textWords = wordsInRow.filter(w => w.bbox.x0 >= swatchEndX);
 
       let name = textWords.map(w => w.text).join(' ').trim();
-      // Clean up common OCR artifacts
       name = cleanOcrText(name);
 
       const avgConfidence = textWords.length > 0
         ? textWords.reduce((s, w) => s + w.confidence, 0) / textWords.length
         : 0;
 
-      // Skip entries with names that look like text fragments
-      if (!isValidPlantName(name)) {
+      if (!name || name.length < 2) {
         continue;
       }
 
@@ -96,7 +452,6 @@ const LegendParser = (() => {
         rowBounds: row
       };
 
-      // Add template data if available
       if (templates[i]) {
         entry.templateDataUrl = templates[i].dataUrl;
         entry.templateWidth = templates[i].width;
