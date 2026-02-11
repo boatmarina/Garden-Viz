@@ -87,23 +87,25 @@ const LegendParser = (() => {
         return verticallyAligned && horizontallyValid;
       });
 
-      // Sort by horizontal position
-      associatedWords.sort((a, b) => a.bbox.x0 - b.bbox.x0);
+      // Sort by vertical position first, then horizontal
+      associatedWords.sort((a, b) => {
+        const aY = (a.bbox.y0 + a.bbox.y1) / 2;
+        const bY = (b.bbox.y0 + b.bbox.y1) / 2;
+        if (Math.abs(aY - bY) > swatchHeight * 0.3) return aY - bY;
+        return a.bbox.x0 - b.bbox.x0;
+      });
 
-      // Group words that are close together horizontally (same line of text)
-      const textGroups = groupWordsIntoLines(associatedWords, swatchHeight);
-
-      // Take the first line as the plant name
-      const firstLine = textGroups[0] || [];
-      let name = firstLine.map(w => w.text).join(' ').trim();
+      // Combine all associated words into the plant name
+      // (plant names in legends often have multiple parts: genus, species, cultivar)
+      let name = associatedWords.map(w => w.text).join(' ').trim();
       name = cleanOcrText(name);
 
-      const avgConfidence = firstLine.length > 0
-        ? firstLine.reduce((s, w) => s + w.confidence, 0) / firstLine.length
+      const avgConfidence = associatedWords.length > 0
+        ? associatedWords.reduce((s, w) => s + w.confidence, 0) / associatedWords.length
         : 0;
 
-      // Skip entries with invalid names
-      if (!name || name.length < 2) {
+      // Skip entries with invalid names (fragments, too short, etc.)
+      if (!isValidPlantName(name)) {
         continue;
       }
 
@@ -634,6 +636,9 @@ const LegendParser = (() => {
 
     if (!startsWithCapital && !isAllCaps) return false;
 
+    // Reject names that contain OCR artifacts like brackets
+    if (/[\[\]{}]/.test(name)) return false;
+
     // Reject names that are just common words/fragments
     const invalidPatterns = [
       /^form\b/i,           // "form - white"
@@ -647,10 +652,14 @@ const LegendParser = (() => {
       /^or\b/i,             // "or similar"
       /^and\b/i,            // "and white"
       /^with\b/i,           // "with yellow"
+      /^worn\b/i,           // OCR artifact
+      /^cond\b/i,           // OCR artifact "cond vy"
+      /^soon\b/i,           // OCR artifact
       /^[-–—]/,             // Starts with dash
       /^\(/,                // Starts with parenthesis
       /^\d/,                // Starts with number
       /^[a-z]{1,3}\b/,      // Starts with 1-3 lowercase letters (likely fragment)
+      /^[A-Z][a-z]?\s+[a-z]{1,2}\b/i,  // Pattern like "Is si" or "Oe" - garbled OCR
     ];
 
     for (const pattern of invalidPatterns) {
@@ -661,9 +670,21 @@ const LegendParser = (() => {
     const words = name.split(/\s+/);
     if (words.length === 1 && words[0].length < 4) return false;
 
+    // Reject if first word is too short (less than 3 chars) - likely OCR fragment
+    if (words[0].length < 3) return false;
+
+    // Reject if most words are very short (garbled OCR like "Is si")
+    const shortWords = words.filter(w => w.length <= 2).length;
+    if (shortWords > words.length * 0.5 && words.length > 1) return false;
+
     // Reject if it's mostly punctuation or numbers
     const alphaCount = (name.match(/[a-zA-Z]/g) || []).length;
     if (alphaCount < name.length * 0.5) return false;
+
+    // Reject common non-plant words that might pass other checks
+    const nonPlantWords = ['one', 'two', 'three', 'four', 'five', 'none', 'some', 'more', 'less'];
+    const firstWordLower = words[0].toLowerCase();
+    if (nonPlantWords.includes(firstWordLower)) return false;
 
     return true;
   }
@@ -728,6 +749,10 @@ const LegendParser = (() => {
     // Remove parenthetical notes that aren't cultivar names
     // Keep things like 'Moonbeam' but remove things like '(sun)' or '(deer resistant)'
     cleaned = cleaned.replace(/\([^)]*\b(sun|shade|water|deer|rabbit|drought|native|zone)\b[^)]*\)/gi, '');
+
+    // Remove bracket content (often OCR artifacts or notes)
+    cleaned = cleaned.replace(/\[[^\]]*\]/g, '');
+    cleaned = cleaned.replace(/\{[^}]*\}/g, '');
 
     // Clean up extra punctuation
     cleaned = cleaned.replace(/[-–:,;]+\s*$/, '');
