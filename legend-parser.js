@@ -197,40 +197,49 @@ const LegendParser = (() => {
       }
     }
 
-    // Connected-component labeling with 8-connectivity
+    // Connected-component labeling with 8-connectivity using efficient BFS
     const labels = new Int32Array(width * height);
     const labelColors = new Map(); // label -> {pixels: [[r,g,b], ...], bounds: {minX, maxX, minY, maxY}}
     let nextLabel = 1;
+    const dx = [-1, 1, 0, 0, -1, 1, -1, 1];
+    const dy = [0, 0, -1, 1, -1, -1, 1, 1];
 
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const idx = y * width + x;
         if (colorMask[idx] === 0 || labels[idx] !== 0) continue;
 
-        // BFS flood fill
-        const queue = [[x, y]];
+        // BFS flood fill with index-based queue for O(1) dequeue
         const label = nextLabel++;
+        labels[idx] = label;
+        const queue = [[x, y]];
+        let qIdx = 0;
         let minX = x, maxX = x, minY = y, maxY = y;
-        const pixels = [];
+        const pixels = [colorValues[idx]];
 
-        while (queue.length > 0) {
-          const [cx, cy] = queue.shift();
-          const cIdx = cy * width + cx;
+        while (qIdx < queue.length) {
+          const [cx, cy] = queue[qIdx++];
 
-          if (cx < 0 || cx >= width || cy < 0 || cy >= height) continue;
-          if (colorMask[cIdx] === 0 || labels[cIdx] !== 0) continue;
+          // Check 8-connectivity neighbors
+          for (let d = 0; d < 8; d++) {
+            const nx = cx + dx[d];
+            const ny = cy + dy[d];
 
-          labels[cIdx] = label;
-          pixels.push(colorValues[cIdx]);
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
 
-          minX = Math.min(minX, cx);
-          maxX = Math.max(maxX, cx);
-          minY = Math.min(minY, cy);
-          maxY = Math.max(maxY, cy);
+            const nIdx = ny * width + nx;
+            if (colorMask[nIdx] === 0 || labels[nIdx] !== 0) continue;
 
-          // 8-connectivity neighbors
-          queue.push([cx - 1, cy], [cx + 1, cy], [cx, cy - 1], [cx, cy + 1]);
-          queue.push([cx - 1, cy - 1], [cx + 1, cy - 1], [cx - 1, cy + 1], [cx + 1, cy + 1]);
+            // Label immediately to prevent re-adding to queue
+            labels[nIdx] = label;
+            pixels.push(colorValues[nIdx]);
+            minX = Math.min(minX, nx);
+            maxX = Math.max(maxX, nx);
+            minY = Math.min(minY, ny);
+            maxY = Math.max(maxY, ny);
+
+            queue.push([nx, ny]);
+          }
         }
 
         labelColors.set(label, { pixels, bounds: { minX, maxX, minY, maxY } });
