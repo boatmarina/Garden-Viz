@@ -21,8 +21,18 @@ const LegendParser = (() => {
 
     // 1. Detect all swatches across the entire image
     const swatches = detectSwatches(imgData);
+
+    // Debug: Log detected swatches
+    console.log(`[LegendParser] Detected ${swatches.length} swatches:`);
+    swatches.forEach((s, i) => {
+      const w = s.bounds.maxX - s.bounds.minX;
+      const h = s.bounds.maxY - s.bounds.minY;
+      console.log(`  [${i}] color: rgb(${s.color.join(',')}), size: ${w}x${h}, pos: (${s.bounds.minX}, ${s.bounds.minY})`);
+    });
+
     if (swatches.length === 0) {
       // Fallback to row-based approach if no swatches detected
+      console.log('[LegendParser] No swatches found, falling back to row-based parsing');
       return await parseWithRows(canvas, imgData, onProgress);
     }
 
@@ -158,6 +168,12 @@ const LegendParser = (() => {
 
       entries.push(entry);
     }
+
+    // Debug: Log final entries
+    console.log(`[LegendParser] Final entries (${entries.length}):`);
+    entries.forEach((e, i) => {
+      console.log(`  [${i}] "${e.name}" - rgb(${e.color.join(',')})`);
+    });
 
     if (onProgress) onProgress({ status: 'done', progress: 100, message: 'Done!' });
     return entries;

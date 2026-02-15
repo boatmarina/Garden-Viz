@@ -251,13 +251,35 @@ const ColorScanner = (() => {
           const mergedBlobs = mergeNearbyBlobs(blobs);
           if (onProgress) onProgress(80);
 
+          // Debug: Log detected blobs
+          console.log(`[ColorScanner] Target: rgb(${tr},${tg},${tb}), tolerance: ${tolerance}`);
+          console.log(`[ColorScanner] Found ${blobs.length} raw blobs, ${mergedBlobs.length} after merging`);
+          mergedBlobs.slice(0, 10).forEach((b, i) => {
+            const bw = b.bounds.maxX - b.bounds.minX;
+            const bh = b.bounds.maxY - b.bounds.minY;
+            const aspect = Math.max(bw, bh) / Math.max(1, Math.min(bw, bh));
+            console.log(`  [${i}] pos: (${Math.round(b.x)}, ${Math.round(b.y)}), size: ${b.size}px, bounds: ${bw}x${bh}, aspect: ${aspect.toFixed(1)}`);
+          });
+          if (mergedBlobs.length > 10) {
+            console.log(`  ... and ${mergedBlobs.length - 10} more`);
+          }
+
+          // Step 3.5: Filter out elongated blobs (likely borders, not plants)
+          const filteredBlobs = mergedBlobs.filter(b => {
+            const bw = b.bounds.maxX - b.bounds.minX;
+            const bh = b.bounds.maxY - b.bounds.minY;
+            const aspect = Math.max(bw, bh) / Math.max(1, Math.min(bw, bh));
+            return aspect < 8; // Reject very elongated shapes (borders)
+          });
+          console.log(`[ColorScanner] After aspect ratio filter: ${filteredBlobs.length} blobs`);
+
           // Step 4: Pattern matching (if template provided)
           if (template && template.grayData) {
-            verifyPatterns(mergedBlobs);
+            verifyPatterns(filteredBlobs);
           } else {
             // No pattern matching, assign default score
-            mergedBlobs.forEach(b => b.patternScore = 1.0);
-            resolve(mergedBlobs);
+            filteredBlobs.forEach(b => b.patternScore = 1.0);
+            resolve(filteredBlobs);
           }
         }
       }
