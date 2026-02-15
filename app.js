@@ -565,6 +565,11 @@
   }
 
   legendModalConfirm.addEventListener('click', () => {
+    // Clear old markers when loading a new legend
+    markers = [];
+    colorMap = [];
+    nextColorId = 1;
+
     const validEntries = parsedEntries.filter(e => e.name && e.color);
     validEntries.forEach(entry => {
       const colorEntry = {
