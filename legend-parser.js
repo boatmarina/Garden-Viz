@@ -55,21 +55,22 @@ const LegendParser = (() => {
       }));
     }
 
-    // 3. Associate each swatch with text to its right
+    // 3. Associate each swatch with text to its right using exclusive assignment
+    //    Each word goes to only its nearest swatch to prevent fragments
     const entries = [];
     const words = ocrResult.data.words || [];
 
-    for (const swatch of swatches) {
-      // Find words that are to the right of this swatch and vertically aligned
+    // Build a map of which swatches each word could belong to, with distances
+    const wordCandidates = new Map(); // word index -> [{swatchIdx, distance}]
+
+    for (let si = 0; si < swatches.length; si++) {
+      const swatch = swatches[si];
       const swatchCenterY = (swatch.bounds.minY + swatch.bounds.maxY) / 2;
       const swatchHeight = swatch.bounds.maxY - swatch.bounds.minY;
       const swatchRight = swatch.bounds.maxX;
 
-      // Find words that:
-      // 1. Start to the right of the swatch (with some tolerance)
-      // 2. Are vertically aligned with the swatch
-      // 3. Are reasonably close horizontally (not from another column)
-      const associatedWords = words.filter(w => {
+      for (let wi = 0; wi < words.length; wi++) {
+        const w = words[wi];
         const wordCenterY = (w.bbox.y0 + w.bbox.y1) / 2;
         const wordLeft = w.bbox.x0;
 
@@ -84,25 +85,54 @@ const LegendParser = (() => {
         const horizontallyValid = wordLeft >= swatchRight - 5 &&
                                    wordLeft <= swatchRight + maxTextDistance;
 
-        return verticallyAligned && horizontallyValid;
-      });
+        if (verticallyAligned && horizontallyValid) {
+          // Compute distance from word to swatch (prioritize horizontal proximity)
+          const hDist = Math.max(0, wordLeft - swatchRight);
+          const vDist = Math.abs(wordCenterY - swatchCenterY);
+          const dist = Math.sqrt(hDist * hDist + vDist * vDist);
+
+          if (!wordCandidates.has(wi)) {
+            wordCandidates.set(wi, []);
+          }
+          wordCandidates.get(wi).push({ swatchIdx: si, distance: dist });
+        }
+      }
+    }
+
+    // Assign each word exclusively to its nearest swatch
+    const swatchAssignedWords = new Map(); // swatch index -> [word objects]
+    for (const [wi, candidates] of wordCandidates) {
+      candidates.sort((a, b) => a.distance - b.distance);
+      const closestSwatchIdx = candidates[0].swatchIdx;
+
+      if (!swatchAssignedWords.has(closestSwatchIdx)) {
+        swatchAssignedWords.set(closestSwatchIdx, []);
+      }
+      swatchAssignedWords.get(closestSwatchIdx).push(words[wi]);
+    }
+
+    // Build entries from exclusively assigned words
+    for (let si = 0; si < swatches.length; si++) {
+      const swatch = swatches[si];
+      const assignedWords = swatchAssignedWords.get(si) || [];
+
+      if (assignedWords.length === 0) continue;
+
+      const swatchHeight = swatch.bounds.maxY - swatch.bounds.minY;
 
       // Sort by vertical position first, then horizontal
-      associatedWords.sort((a, b) => {
+      assignedWords.sort((a, b) => {
         const aY = (a.bbox.y0 + a.bbox.y1) / 2;
         const bY = (b.bbox.y0 + b.bbox.y1) / 2;
         if (Math.abs(aY - bY) > swatchHeight * 0.3) return aY - bY;
         return a.bbox.x0 - b.bbox.x0;
       });
 
-      // Combine all associated words into the plant name
-      // (plant names in legends often have multiple parts: genus, species, cultivar)
-      let name = associatedWords.map(w => w.text).join(' ').trim();
+      // Combine all assigned words into the plant name
+      let name = assignedWords.map(w => w.text).join(' ').trim();
       name = cleanOcrText(name);
 
-      const avgConfidence = associatedWords.length > 0
-        ? associatedWords.reduce((s, w) => s + w.confidence, 0) / associatedWords.length
-        : 0;
+      const avgConfidence = assignedWords.reduce((s, w) => s + w.confidence, 0) / assignedWords.length;
 
       // Skip entries with invalid names (fragments, too short, etc.)
       if (!isValidPlantName(name)) {
@@ -156,9 +186,9 @@ const LegendParser = (() => {
 
         // Consider it colored if:
         // 1. Not too bright (white) or too dark (black)
-        // 2. Has some color saturation (not gray)
+        // 2. Has actual color saturation (not gray/black text)
         const isBrightEnough = brightness > 30 && brightness < 240;
-        const hasColor = maxDiff > 15 || (brightness > 50 && brightness < 200);
+        const hasColor = maxDiff > 15;
 
         if (isBrightEnough && hasColor) {
           colorMask[idx] = 1;
@@ -258,7 +288,32 @@ const LegendParser = (() => {
     });
 
     // Merge swatches that are very close and have similar colors
-    return mergeCloseSwatches(swatches);
+    const merged = mergeCloseSwatches(swatches);
+
+    // Filter by median size - real swatches in a legend are consistently sized
+    return filterByMedianSize(merged);
+  }
+
+  /**
+   * Filter swatches to only keep those near the median size.
+   * Real legend swatches are consistently sized; outliers are artifacts.
+   */
+  function filterByMedianSize(swatches) {
+    if (swatches.length < 3) return swatches;
+
+    const areas = swatches.map(s => {
+      const w = s.bounds.maxX - s.bounds.minX;
+      const h = s.bounds.maxY - s.bounds.minY;
+      return w * h;
+    });
+
+    const sorted = [...areas].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+
+    // Keep swatches within a reasonable range of the median area
+    return swatches.filter((s, i) => {
+      return areas[i] >= median * 0.15 && areas[i] <= median * 6;
+    });
   }
 
   /**
@@ -742,8 +797,10 @@ const LegendParser = (() => {
     // Remove common non-name suffixes
     cleaned = cleaned.replace(/\s*[-–]\s*(new|featured|native|recommended)\s*$/gi, '');
 
-    // Remove standalone single letters or numbers (often OCR artifacts)
-    cleaned = cleaned.replace(/\b[a-z]\b/gi, '');
+    // Remove standalone single letters that are NOT:
+    // - followed by a period (botanical abbreviations like "b.", "f.", "m.")
+    // - the letter 'x' (hybrid cross marker in "Camellia x williamsii")
+    cleaned = cleaned.replace(/\b[a-wyz]\b(?!\.)/gi, '');
     cleaned = cleaned.replace(/\b\d{1,2}\b/g, '');
 
     // Remove parenthetical notes that aren't cultivar names
