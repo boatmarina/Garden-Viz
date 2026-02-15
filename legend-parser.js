@@ -186,9 +186,9 @@ const LegendParser = (() => {
 
         // Consider it colored if:
         // 1. Not too bright (white) or too dark (black)
-        // 2. Has actual color saturation (not gray/black text)
+        // 2. Has some color saturation (not pure gray/black text)
         const isBrightEnough = brightness > 30 && brightness < 240;
-        const hasColor = maxDiff > 15;
+        const hasColor = maxDiff > 10;
 
         if (isBrightEnough && hasColor) {
           colorMask[idx] = 1;
@@ -304,11 +304,11 @@ const LegendParser = (() => {
   }
 
   /**
-   * Filter swatches to only keep those near the median size.
-   * Real legend swatches are consistently sized; outliers are artifacts.
+   * Filter swatches to remove extreme outliers by size.
+   * Uses a very permissive filter to avoid removing valid swatches.
    */
   function filterByMedianSize(swatches) {
-    if (swatches.length < 3) return swatches;
+    if (swatches.length < 5) return swatches;
 
     const areas = swatches.map(s => {
       const w = s.bounds.maxX - s.bounds.minX;
@@ -317,11 +317,14 @@ const LegendParser = (() => {
     });
 
     const sorted = [...areas].sort((a, b) => a - b);
-    const median = sorted[Math.floor(sorted.length / 2)];
+    // Use 25th percentile as reference to avoid outliers skewing the filter
+    const q1 = sorted[Math.floor(sorted.length * 0.25)];
+    const q3 = sorted[Math.floor(sorted.length * 0.75)];
 
-    // Keep swatches within a reasonable range of the median area
+    // Keep swatches that aren't extreme outliers (very permissive range)
     return swatches.filter((s, i) => {
-      return areas[i] >= median * 0.15 && areas[i] <= median * 6;
+      // Keep if area is at least 5% of q1 (not tiny) and at most 20x q3 (not huge)
+      return areas[i] >= q1 * 0.05 && areas[i] <= q3 * 20;
     });
   }
 
