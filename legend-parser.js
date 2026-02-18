@@ -79,6 +79,9 @@ const LegendParser = (() => {
       return a.bounds.minX - b.bounds.minX;
     });
 
+    // Track which words have been assigned to prevent double-counting
+    const assignedWords = new Set();
+
     // For each swatch, find the boundary where we should stop collecting text
     // This is either the start of the next swatch in the same row, or a maximum distance
     const swatchTextBoundaries = swatches.map((swatch, i) => {
@@ -87,14 +90,15 @@ const LegendParser = (() => {
       const swatchRight = swatch.bounds.maxX;
 
       // Find the next swatch on roughly the same row
-      let rightBoundary = swatchRight + imgData.width * 0.25; // Default: max 25% of image width
+      // Use a smaller default max distance (15% of image width instead of 25%)
+      let rightBoundary = swatchRight + imgData.width * 0.15;
 
       for (let j = i + 1; j < swatches.length; j++) {
         const other = swatches[j];
         const otherCenterY = (other.bounds.minY + other.bounds.maxY) / 2;
 
-        // Check if on same row (vertical overlap)
-        if (Math.abs(otherCenterY - swatchCenterY) < swatchHeight * 1.5) {
+        // Check if on same row (vertical overlap) - be more strict
+        if (Math.abs(otherCenterY - swatchCenterY) < swatchHeight * 1.2) {
           // This swatch is on the same row and to the right
           if (other.bounds.minX > swatchRight) {
             rightBoundary = Math.min(rightBoundary, other.bounds.minX - 5);
@@ -112,40 +116,61 @@ const LegendParser = (() => {
       };
     });
 
-    // Assign words to swatches
+    // Assign words to swatches - each word can only be assigned once
     for (const { swatch, swatchRight, rightBoundary, swatchCenterY, swatchHeight } of swatchTextBoundaries) {
       // Find words that belong to this swatch
       const swatchWords = [];
 
-      for (const word of words) {
+      for (let wi = 0; wi < words.length; wi++) {
+        if (assignedWords.has(wi)) continue; // Already assigned to another swatch
+
+        const word = words[wi];
         const wordLeft = word.bbox.x0;
-        const wordRight = word.bbox.x1;
         const wordCenterY = (word.bbox.y0 + word.bbox.y1) / 2;
 
         // Word must be to the right of swatch and before the boundary
         if (wordLeft < swatchRight - 5) continue;
         if (wordLeft > rightBoundary) continue;
 
-        // Word must be vertically aligned with swatch
-        const verticalPadding = swatchHeight * 0.6;
+        // Word must be vertically aligned with swatch - use tighter tolerance
+        // Fixed tolerance of 10px or 30% of swatch height, whichever is smaller
+        const verticalPadding = Math.min(10, swatchHeight * 0.3);
         const verticallyAligned = wordCenterY >= swatch.bounds.minY - verticalPadding &&
                                    wordCenterY <= swatch.bounds.maxY + verticalPadding;
 
         if (!verticallyAligned) continue;
 
-        swatchWords.push(word);
+        swatchWords.push({ word, index: wi });
       }
 
       if (swatchWords.length === 0) continue;
 
       // Sort words by x position to form the text
-      swatchWords.sort((a, b) => a.bbox.x0 - b.bbox.x0);
+      swatchWords.sort((a, b) => a.word.bbox.x0 - b.word.bbox.x0);
+
+      // Check for large gaps between words that might indicate column boundaries
+      // If there's a gap > 50px between consecutive words, stop there
+      const filteredWords = [swatchWords[0]];
+      for (let i = 1; i < swatchWords.length; i++) {
+        const prevRight = swatchWords[i - 1].word.bbox.x1;
+        const currLeft = swatchWords[i].word.bbox.x0;
+        if (currLeft - prevRight > 50) {
+          // Large gap detected, stop collecting words
+          break;
+        }
+        filteredWords.push(swatchWords[i]);
+      }
+
+      // Mark these words as assigned
+      for (const { index } of filteredWords) {
+        assignedWords.add(index);
+      }
 
       // Combine words into name
-      let name = swatchWords.map(w => w.text).join(' ').trim();
+      let name = filteredWords.map(w => w.word.text).join(' ').trim();
       name = cleanOcrText(name);
 
-      const avgConfidence = swatchWords.reduce((s, w) => s + w.confidence, 0) / swatchWords.length;
+      const avgConfidence = filteredWords.reduce((s, w) => s + w.word.confidence, 0) / filteredWords.length;
 
       // Skip entries with invalid names
       if (!isValidPlantName(name)) {
@@ -923,13 +948,45 @@ const LegendParser = (() => {
     // Keep things like 'Moonbeam' but remove things like '(sun)' or '(deer resistant)'
     cleaned = cleaned.replace(/\([^)]*\b(sun|shade|water|deer|rabbit|drought|native|zone)\b[^)]*\)/gi, '');
 
+    // Remove editorial notes in parentheses like (TAKE OUT), (CHANGE), (REMOVE)
+    cleaned = cleaned.replace(/\([^)]*\b(TAKE|OUT|CHANGE|REMOVE|PINKS?|DELETE|MOVE|ADD|TBD|TODO)\b[^)]*\)/gi, '');
+
     // Remove bracket content (often OCR artifacts or notes)
     cleaned = cleaned.replace(/\[[^\]]*\]/g, '');
     cleaned = cleaned.replace(/\{[^}]*\}/g, '');
 
+    // Remove random punctuation sequences that are OCR artifacts
+    // Things like ". =", ". >", ". %", "= =", "»", etc.
+    cleaned = cleaned.replace(/\.\s*[=><>%»\\]/g, '');
+    cleaned = cleaned.replace(/[=><>%»\\]\s*\./g, '');
+    cleaned = cleaned.replace(/\s+[=><>%»\\]+\s*/g, ' ');
+    cleaned = cleaned.replace(/\s*[»«]+\s*/g, ' ');
+
+    // Remove "BR" and "BB" abbreviations (often OCR noise from borders/boxes)
+    cleaned = cleaned.replace(/\s+B[RB]\s*/gi, ' ');
+    cleaned = cleaned.replace(/\s+B[RB]$/gi, '');
+
+    // Remove "EH" and similar short uppercase sequences at word boundaries
+    cleaned = cleaned.replace(/\s+[A-Z]{2}\s*$/g, '');
+    cleaned = cleaned.replace(/\s+[A-Z]{2}\s+/g, ' ');
+
+    // Remove "5T." and similar size/spacing notations
+    cleaned = cleaned.replace(/\s*\d+T\.?\s*/gi, ' ');
+
+    // Remove "FR—" and similar OCR artifacts
+    cleaned = cleaned.replace(/\bFR[—–-]\s*/gi, '');
+
+    // Remove category labels that appear anywhere in the text
+    const categoryLabelsAnywhere = [
+      'Perennials?', 'Groundcovers?', 'Ground\\s*covers?', 'Shrubs?\\.?'
+    ];
+    const catAnyRegex = new RegExp(`\\s+(${categoryLabelsAnywhere.join('|')})\\s*`, 'gi');
+    cleaned = cleaned.replace(catAnyRegex, ' ');
+
     // Clean up extra punctuation
     cleaned = cleaned.replace(/[-–:,;]+\s*$/, '');
     cleaned = cleaned.replace(/^[-–:,;]+\s*/, '');
+    cleaned = cleaned.replace(/\s*\.\s*$/, ''); // Trailing period with optional spaces
 
     // Collapse multiple spaces and trim
     cleaned = cleaned.replace(/\s+/g, ' ').trim();
