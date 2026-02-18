@@ -39,6 +39,9 @@
         <span class="separator"></span>
         <button id="btnToggleView" title="Toggle between map and plant list view">Plant List</button>
         <span class="separator"></span>
+        <button id="btnDebugMode" title="Toggle debug mode for feedback collection">Debug Mode</button>
+        <button id="btnExportDebug" title="Export debug feedback data" style="display:none;">Export Feedback</button>
+        <span class="separator"></span>
         <button id="btnNewImage" title="Load new image">New Image</button>
       </div>
 
@@ -207,6 +210,51 @@
           <button class="btn-save" id="legendModalConfirm" style="display:none;">Add All to Legend</button>
         </div>
       </div>
+    </div>
+    <!-- Debug feedback modal -->
+    <div class="modal-backdrop" id="debugModal" style="display:none;">
+      <div class="modal debug-modal">
+        <h3>Marker Feedback</h3>
+        <div class="debug-marker-info">
+          <div class="debug-marker-swatch" id="debugMarkerSwatch"></div>
+          <div class="debug-marker-details">
+            <p><strong>Detected as:</strong> <span id="debugDetectedName">-</span></p>
+            <p><strong>Color:</strong> <span id="debugDetectedColor">-</span></p>
+            <p><strong>Position:</strong> <span id="debugMarkerPosition">-</span></p>
+          </div>
+        </div>
+
+        <div class="debug-rating">
+          <label>How accurate is this identification?</label>
+          <div class="debug-rating-buttons">
+            <button class="debug-rating-btn" data-rating="correct">Correct</button>
+            <button class="debug-rating-btn" data-rating="close">Close Match</button>
+            <button class="debug-rating-btn" data-rating="wrong">Wrong</button>
+            <button class="debug-rating-btn" data-rating="duplicate">Duplicate</button>
+          </div>
+        </div>
+
+        <div class="debug-correct-name" id="debugCorrectNameSection" style="display:none;">
+          <label>What should this plant be?</label>
+          <input type="text" id="debugCorrectName" placeholder="Enter correct plant name">
+          <p class="hint">Leave blank if you don't know the correct name</p>
+        </div>
+
+        <div class="debug-notes">
+          <label>Additional notes (optional)</label>
+          <input type="text" id="debugNotes" placeholder="Any other observations...">
+        </div>
+
+        <div class="modal-buttons">
+          <button class="btn-cancel" id="debugModalCancel">Cancel</button>
+          <button class="btn-save" id="debugModalSave">Save Feedback</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Debug mode indicator -->
+    <div class="debug-mode-banner" id="debugModeBanner" style="display:none;">
+      Debug Mode: Click on markers to provide feedback. <button id="btnAddMissing">+ Add Missing Plant</button>
     </div>
   </main>
 
