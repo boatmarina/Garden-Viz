@@ -281,17 +281,16 @@ const LegendParser = (() => {
         const isBrightEnough = brightness > 30 && brightness < 240;
         const hasColor = maxDiff > 10;
 
-        // Blue-gray text detection: catch the specific range seen in legend text
+        // Blue-gray text detection: ONLY catch the specific narrow range seen in legend text
         // These colors cluster around rgb(100-125, 130-150, 165-185) with b > g > r
-        const isBlueGray = b > g && g > r &&
-                          r >= 95 && r <= 130 &&
-                          g >= 125 && g <= 155 &&
-                          b >= 160 && b <= 190;
+        // Be very specific to avoid filtering out legitimate swatch colors
+        const isBlueGrayText = b > g && g > r &&
+                          r >= 100 && r <= 125 &&
+                          g >= 130 && g <= 150 &&
+                          b >= 165 && b <= 185 &&
+                          saturation < 0.35; // Also check saturation is low
 
-        // Also catch general low-saturation blue-ish grays
-        const isLowSatBlueGray = b > r && b > g && saturation < 0.45 && brightness > 100 && brightness < 180;
-
-        if (isBrightEnough && hasColor && !isBlueGray && !isLowSatBlueGray) {
+        if (isBrightEnough && hasColor && !isBlueGrayText) {
           colorMask[idx] = 1;
           colorValues[idx] = [r, g, b];
         }
@@ -387,19 +386,17 @@ const LegendParser = (() => {
       const maxC = Math.max(avgR, avgG, avgB);
       const minC = Math.min(avgR, avgG, avgB);
       const colorfulness = maxC - minC;
-      if (colorfulness < 20 && maxC > 50 && maxC < 220) continue; // Gray region, likely not a swatch
+      if (colorfulness < 15 && maxC > 50 && maxC < 220) continue; // Gray region, likely not a swatch
 
-      // Reject blue-gray colors that are typical of text
-      // These cluster around rgb(100-125, 130-150, 165-185) with pattern b > g > r
-      const isBlueGrayColor = avgB > avgG && avgG > avgR &&
-                              avgR >= 90 && avgR <= 135 &&
-                              avgG >= 120 && avgG <= 160 &&
-                              avgB >= 155 && avgB <= 195;
-      if (isBlueGrayColor) continue;
-
-      // Also reject low saturation blue-ish swatches
+      // Reject ONLY the specific blue-gray colors that are typical of text
+      // Be very narrow to avoid filtering legitimate swatches
       const swatchSaturation = maxC === 0 ? 0 : (maxC - minC) / maxC;
-      if (avgB > avgR && avgB > avgG && swatchSaturation < 0.4) continue;
+      const isBlueGrayText = avgB > avgG && avgG > avgR &&
+                              avgR >= 100 && avgR <= 125 &&
+                              avgG >= 130 && avgG <= 150 &&
+                              avgB >= 165 && avgB <= 185 &&
+                              swatchSaturation < 0.35;
+      if (isBlueGrayText) continue;
 
       swatches.push({
         color: avgColor,
