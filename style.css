@@ -764,3 +764,216 @@ img.plant-list-swatch {
   color: var(--text-muted);
   border-bottom-color: var(--border);
 }
+
+/* ========== Debug Mode Styles ========== */
+#btnDebugMode.active {
+  background: #e74c3c;
+  color: white;
+}
+
+.debug-mode-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: #e74c3c;
+  color: white;
+  padding: 8px 20px;
+  text-align: center;
+  font-size: 14px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.debug-mode-banner button {
+  background: white;
+  color: #e74c3c;
+  border: none;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.debug-mode-banner button:hover {
+  background: #f8d7da;
+}
+
+/* Debug modal */
+.debug-modal {
+  max-width: 450px;
+}
+
+.debug-marker-info {
+  display: flex;
+  gap: 16px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.debug-marker-swatch {
+  width: 50px;
+  height: 50px;
+  border-radius: 8px;
+  border: 2px solid #ddd;
+  flex-shrink: 0;
+}
+
+.debug-marker-details {
+  font-size: 13px;
+}
+
+.debug-marker-details p {
+  margin: 4px 0;
+}
+
+.debug-rating {
+  margin-bottom: 16px;
+}
+
+.debug-rating label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.debug-rating-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.debug-rating-btn {
+  padding: 8px 16px;
+  border: 2px solid #ddd;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.debug-rating-btn:hover {
+  border-color: var(--accent);
+}
+
+.debug-rating-btn.selected {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.debug-rating-btn[data-rating="correct"].selected {
+  background: #27ae60;
+  border-color: #27ae60;
+}
+
+.debug-rating-btn[data-rating="close"].selected {
+  background: #f39c12;
+  border-color: #f39c12;
+}
+
+.debug-rating-btn[data-rating="wrong"].selected {
+  background: #e74c3c;
+  border-color: #e74c3c;
+}
+
+.debug-rating-btn[data-rating="duplicate"].selected {
+  background: #9b59b6;
+  border-color: #9b59b6;
+}
+
+.debug-correct-name {
+  margin-bottom: 16px;
+}
+
+.debug-correct-name label,
+.debug-notes label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.debug-correct-name input,
+.debug-notes input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.debug-notes {
+  margin-bottom: 16px;
+}
+
+/* Marker feedback indicators */
+.marker.debug-correct::after {
+  content: '✓';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #27ae60;
+  color: white;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.marker.debug-close::after {
+  content: '~';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #f39c12;
+  color: white;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.marker.debug-wrong::after {
+  content: '✗';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #e74c3c;
+  color: white;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.marker.debug-duplicate::after {
+  content: '2';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #9b59b6;
+  color: white;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

@@ -1073,6 +1073,272 @@
     }
   }
 
+  // ---- Debug Mode ----
+  let debugMode = false;
+  let debugFeedback = []; // Array of feedback entries
+  let debugCurrentMarkerId = null;
+  let debugMissingMode = false;
+
+  const btnDebugMode = document.getElementById('btnDebugMode');
+  const btnExportDebug = document.getElementById('btnExportDebug');
+  const debugModeBanner = document.getElementById('debugModeBanner');
+  const debugModal = document.getElementById('debugModal');
+  const debugMarkerSwatch = document.getElementById('debugMarkerSwatch');
+  const debugDetectedName = document.getElementById('debugDetectedName');
+  const debugDetectedColor = document.getElementById('debugDetectedColor');
+  const debugMarkerPosition = document.getElementById('debugMarkerPosition');
+  const debugCorrectNameSection = document.getElementById('debugCorrectNameSection');
+  const debugCorrectName = document.getElementById('debugCorrectName');
+  const debugNotes = document.getElementById('debugNotes');
+  const debugModalCancel = document.getElementById('debugModalCancel');
+  const debugModalSave = document.getElementById('debugModalSave');
+  const btnAddMissing = document.getElementById('btnAddMissing');
+
+  // Toggle debug mode
+  btnDebugMode.addEventListener('click', () => {
+    debugMode = !debugMode;
+    btnDebugMode.classList.toggle('active', debugMode);
+    btnExportDebug.style.display = debugMode ? 'inline-block' : 'none';
+    debugModeBanner.style.display = debugMode ? 'flex' : 'none';
+
+    if (debugMode) {
+      document.body.style.paddingTop = '40px';
+    } else {
+      document.body.style.paddingTop = '0';
+      debugMissingMode = false;
+    }
+  });
+
+  // Override marker click when in debug mode
+  function handleMarkerClickForDebug(markerId) {
+    debugCurrentMarkerId = markerId;
+    const m = markers.find(marker => marker.id === markerId);
+    if (!m) return;
+
+    // Populate modal with marker info
+    const color = m.markerColor || [];
+    debugMarkerSwatch.style.backgroundColor = `rgb(${color[0] || 128},${color[1] || 128},${color[2] || 128})`;
+    debugDetectedName.textContent = m.name || m.common || 'Unknown';
+    debugDetectedColor.textContent = `rgb(${color.join(', ')})`;
+    debugMarkerPosition.textContent = `(${Math.round(m.x)}, ${Math.round(m.y)})`;
+
+    // Reset modal state
+    document.querySelectorAll('.debug-rating-btn').forEach(btn => btn.classList.remove('selected'));
+    debugCorrectNameSection.style.display = 'none';
+    debugCorrectName.value = '';
+    debugNotes.value = '';
+
+    // Check if we already have feedback for this marker
+    const existing = debugFeedback.find(f => f.markerId === markerId);
+    if (existing) {
+      const btn = document.querySelector(`.debug-rating-btn[data-rating="${existing.rating}"]`);
+      if (btn) btn.classList.add('selected');
+      if (existing.rating === 'wrong' || existing.rating === 'close') {
+        debugCorrectNameSection.style.display = 'block';
+        debugCorrectName.value = existing.correctName || '';
+      }
+      debugNotes.value = existing.notes || '';
+    }
+
+    debugModal.style.display = 'flex';
+  }
+
+  // Rating button clicks
+  document.querySelectorAll('.debug-rating-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.debug-rating-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+
+      // Show correct name field for wrong/close ratings
+      const rating = btn.dataset.rating;
+      if (rating === 'wrong' || rating === 'close') {
+        debugCorrectNameSection.style.display = 'block';
+      } else {
+        debugCorrectNameSection.style.display = 'none';
+      }
+    });
+  });
+
+  // Cancel debug modal
+  debugModalCancel.addEventListener('click', () => {
+    debugModal.style.display = 'none';
+    debugMissingMode = false;
+  });
+
+  // Save debug feedback
+  debugModalSave.addEventListener('click', () => {
+    const selectedRating = document.querySelector('.debug-rating-btn.selected');
+    if (!selectedRating) {
+      alert('Please select a rating');
+      return;
+    }
+
+    const rating = selectedRating.dataset.rating;
+    const m = markers.find(marker => marker.id === debugCurrentMarkerId);
+
+    // Remove existing feedback for this marker
+    debugFeedback = debugFeedback.filter(f => f.markerId !== debugCurrentMarkerId);
+
+    // Add new feedback
+    const feedback = {
+      markerId: debugCurrentMarkerId,
+      timestamp: new Date().toISOString(),
+      rating: rating,
+      detectedName: m ? (m.name || m.common) : 'Missing plant',
+      detectedColor: m ? m.markerColor : null,
+      position: m ? { x: Math.round(m.x), y: Math.round(m.y) } : null,
+      correctName: debugCorrectName.value.trim() || null,
+      notes: debugNotes.value.trim() || null,
+      isMissing: debugMissingMode
+    };
+    debugFeedback.push(feedback);
+
+    // Update marker visual to show feedback
+    updateMarkerDebugClass(debugCurrentMarkerId, rating);
+
+    debugModal.style.display = 'none';
+    debugMissingMode = false;
+
+    console.log('[Debug] Feedback saved:', feedback);
+    console.log('[Debug] Total feedback entries:', debugFeedback.length);
+  });
+
+  // Update marker CSS class to show feedback status
+  function updateMarkerDebugClass(markerId, rating) {
+    const markerEl = overlay.querySelector(`.marker[data-id="${markerId}"]`);
+    if (markerEl) {
+      markerEl.classList.remove('debug-correct', 'debug-close', 'debug-wrong', 'debug-duplicate');
+      if (rating) {
+        markerEl.classList.add(`debug-${rating}`);
+      }
+    }
+  }
+
+  // Export debug feedback
+  btnExportDebug.addEventListener('click', () => {
+    const exportData = {
+      exportDate: new Date().toISOString(),
+      imageFilename: canvas.dataset.filename || 'unknown',
+      colorTolerance: parseInt(tolSlider.value),
+      legendEntries: colorMap.map(c => ({
+        id: c.id,
+        name: c.name,
+        color: c.color,
+        count: c.count || 0
+      })),
+      totalMarkers: markers.length,
+      feedbackCount: debugFeedback.length,
+      feedback: debugFeedback,
+      summary: {
+        correct: debugFeedback.filter(f => f.rating === 'correct').length,
+        close: debugFeedback.filter(f => f.rating === 'close').length,
+        wrong: debugFeedback.filter(f => f.rating === 'wrong').length,
+        duplicate: debugFeedback.filter(f => f.rating === 'duplicate').length,
+        missing: debugFeedback.filter(f => f.isMissing).length
+      }
+    };
+
+    const json = JSON.stringify(exportData, null, 2);
+
+    // Copy to clipboard
+    navigator.clipboard.writeText(json).then(() => {
+      alert('Debug data copied to clipboard! You can paste it to share.');
+    }).catch(() => {
+      // Fallback: show in a prompt
+      console.log('[Debug] Export data:', json);
+      prompt('Copy this debug data:', json);
+    });
+  });
+
+  // Add missing plant mode
+  btnAddMissing.addEventListener('click', () => {
+    debugMissingMode = true;
+    alert('Click on the image where a plant is missing, then provide details in the popup.');
+
+    // One-time click handler on canvas
+    const handleMissingClick = (e) => {
+      if (!debugMissingMode) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left - offsetX) / scale;
+      const y = (e.clientY - rect.top - offsetY) / scale;
+
+      // Create a temporary marker ID
+      debugCurrentMarkerId = 'missing_' + Date.now();
+
+      // Populate modal for missing plant
+      debugMarkerSwatch.style.backgroundColor = '#ccc';
+      debugDetectedName.textContent = '(Not detected)';
+      debugDetectedColor.textContent = 'N/A';
+      debugMarkerPosition.textContent = `(${Math.round(x)}, ${Math.round(y)})`;
+
+      // Reset and configure modal
+      document.querySelectorAll('.debug-rating-btn').forEach(btn => btn.classList.remove('selected'));
+      const wrongBtn = document.querySelector('.debug-rating-btn[data-rating="wrong"]');
+      if (wrongBtn) wrongBtn.classList.add('selected');
+      debugCorrectNameSection.style.display = 'block';
+      debugCorrectName.value = '';
+      debugNotes.value = '';
+
+      // Store position in feedback for missing plants
+      const feedback = debugFeedback.find(f => f.markerId === debugCurrentMarkerId);
+      if (!feedback) {
+        debugFeedback.push({
+          markerId: debugCurrentMarkerId,
+          position: { x: Math.round(x), y: Math.round(y) },
+          isMissing: true
+        });
+      }
+
+      debugModal.style.display = 'flex';
+      canvasWrap.removeEventListener('click', handleMissingClick);
+    };
+
+    canvasWrap.addEventListener('click', handleMissingClick, { once: true });
+  });
+
+  // Modify marker click to check debug mode
+  const originalRenderMarkers = renderMarkers;
+  renderMarkers = function() {
+    overlay.innerHTML = '';
+    markers.forEach(m => {
+      const el = document.createElement('div');
+      el.className = 'marker' + (m.id === selectedId ? ' selected' : '');
+      el.style.left = m.x + 'px';
+      el.style.top = m.y + 'px';
+
+      const colorEntry = colorMap.find(c => c.id === m.colorId);
+      const displayColor = m.markerColor || (colorEntry && colorEntry.color);
+
+      if (displayColor && Array.isArray(displayColor) && displayColor.length >= 3) {
+        el.style.backgroundColor = `rgb(${displayColor[0]},${displayColor[1]},${displayColor[2]})`;
+      }
+
+      el.dataset.id = m.id;
+      const label = document.createElement('span');
+      label.className = 'marker-label';
+      label.textContent = m.common || m.name;
+      el.appendChild(label);
+
+      // Check for existing feedback and add visual indicator
+      const feedback = debugFeedback.find(f => f.markerId === m.id);
+      if (feedback) {
+        el.classList.add(`debug-${feedback.rating}`);
+      }
+
+      el.addEventListener('click', e => {
+        e.stopPropagation();
+        if (debugMode) {
+          handleMarkerClickForDebug(m.id);
+        } else {
+          selectMarker(m.id);
+        }
+      });
+      overlay.appendChild(el);
+    });
+    updateMarkerScale();
+  };
+
   // ---- Keyboard ----
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
@@ -1081,6 +1347,9 @@
       }
       if (legendModal.style.display === 'flex') {
         legendModalCancel.click();
+      }
+      if (debugModal.style.display === 'flex') {
+        debugModalCancel.click();
       }
     }
   });
