@@ -65,108 +65,89 @@ const LegendParser = (() => {
       }));
     }
 
-    // 3. Associate each swatch with text using line-based grouping
+    // 3. Associate each swatch with text using column-aware word assignment
+    //    Key insight: in multi-column legends, each swatch only gets words
+    //    immediately to its right, stopping at the next swatch's territory
     const entries = [];
     const words = ocrResult.data.words || [];
 
-    // First, group words into text lines
-    const sortedWords = [...words].sort((a, b) => {
-      const aY = (a.bbox.y0 + a.bbox.y1) / 2;
-      const bY = (b.bbox.y0 + b.bbox.y1) / 2;
-      return aY - bY;
+    // Sort swatches by position (already done in detectSwatches, but ensure)
+    swatches.sort((a, b) => {
+      const rowA = Math.floor(a.bounds.minY / 25);
+      const rowB = Math.floor(b.bounds.minY / 25);
+      if (rowA !== rowB) return rowA - rowB;
+      return a.bounds.minX - b.bounds.minX;
     });
 
-    const textLines = [];
-    let currentLine = [];
-    let currentLineY = -1000;
-
-    for (const word of sortedWords) {
-      const wordY = (word.bbox.y0 + word.bbox.y1) / 2;
-      const wordHeight = word.bbox.y1 - word.bbox.y0;
-
-      // If word is on a new line (more than 60% of word height apart)
-      if (Math.abs(wordY - currentLineY) > wordHeight * 0.6) {
-        if (currentLine.length > 0) {
-          currentLine.sort((a, b) => a.bbox.x0 - b.bbox.x0);
-          textLines.push({
-            words: currentLine,
-            centerY: currentLineY,
-            minY: Math.min(...currentLine.map(w => w.bbox.y0)),
-            maxY: Math.max(...currentLine.map(w => w.bbox.y1)),
-            minX: Math.min(...currentLine.map(w => w.bbox.x0))
-          });
-        }
-        currentLine = [word];
-        currentLineY = wordY;
-      } else {
-        currentLine.push(word);
-      }
-    }
-    if (currentLine.length > 0) {
-      currentLine.sort((a, b) => a.bbox.x0 - b.bbox.x0);
-      textLines.push({
-        words: currentLine,
-        centerY: (currentLine[0].bbox.y0 + currentLine[0].bbox.y1) / 2,
-        minY: Math.min(...currentLine.map(w => w.bbox.y0)),
-        maxY: Math.max(...currentLine.map(w => w.bbox.y1)),
-        minX: Math.min(...currentLine.map(w => w.bbox.x0))
-      });
-    }
-
-    // Associate each swatch with the nearest text line to its right
-    const usedLines = new Set();
-
-    for (let si = 0; si < swatches.length; si++) {
-      const swatch = swatches[si];
+    // For each swatch, find the boundary where we should stop collecting text
+    // This is either the start of the next swatch in the same row, or a maximum distance
+    const swatchTextBoundaries = swatches.map((swatch, i) => {
       const swatchCenterY = (swatch.bounds.minY + swatch.bounds.maxY) / 2;
       const swatchHeight = swatch.bounds.maxY - swatch.bounds.minY;
       const swatchRight = swatch.bounds.maxX;
 
-      // Find the best matching line for this swatch
-      let bestLine = null;
-      let bestDistance = Infinity;
+      // Find the next swatch on roughly the same row
+      let rightBoundary = swatchRight + imgData.width * 0.25; // Default: max 25% of image width
 
-      for (let li = 0; li < textLines.length; li++) {
-        if (usedLines.has(li)) continue;
+      for (let j = i + 1; j < swatches.length; j++) {
+        const other = swatches[j];
+        const otherCenterY = (other.bounds.minY + other.bounds.maxY) / 2;
 
-        const line = textLines[li];
-
-        // Line must be to the right of swatch (with small tolerance)
-        if (line.minX < swatchRight - 5) continue;
-
-        // Line must be within reasonable horizontal distance
-        const hDist = line.minX - swatchRight;
-        if (hDist > imgData.width * 0.35) continue;
-
-        // Vertical alignment: line overlaps with swatch's vertical range
-        const verticalPadding = swatchHeight * 0.5;
-        const lineOverlaps = line.centerY >= swatch.bounds.minY - verticalPadding &&
-                              line.centerY <= swatch.bounds.maxY + verticalPadding;
-
-        if (!lineOverlaps) continue;
-
-        // Calculate distance (favor horizontal proximity, then vertical)
-        const vDist = Math.abs(line.centerY - swatchCenterY);
-        const dist = hDist + vDist * 0.5; // Weight horizontal more
-
-        if (dist < bestDistance) {
-          bestDistance = dist;
-          bestLine = li;
+        // Check if on same row (vertical overlap)
+        if (Math.abs(otherCenterY - swatchCenterY) < swatchHeight * 1.5) {
+          // This swatch is on the same row and to the right
+          if (other.bounds.minX > swatchRight) {
+            rightBoundary = Math.min(rightBoundary, other.bounds.minX - 5);
+            break;
+          }
         }
       }
 
-      if (bestLine === null) continue;
+      return {
+        swatch,
+        swatchRight,
+        rightBoundary,
+        swatchCenterY,
+        swatchHeight
+      };
+    });
 
-      usedLines.add(bestLine);
-      const line = textLines[bestLine];
+    // Assign words to swatches
+    for (const { swatch, swatchRight, rightBoundary, swatchCenterY, swatchHeight } of swatchTextBoundaries) {
+      // Find words that belong to this swatch
+      const swatchWords = [];
 
-      // Combine all words in the line into the plant name
-      let name = line.words.map(w => w.text).join(' ').trim();
+      for (const word of words) {
+        const wordLeft = word.bbox.x0;
+        const wordRight = word.bbox.x1;
+        const wordCenterY = (word.bbox.y0 + word.bbox.y1) / 2;
+
+        // Word must be to the right of swatch and before the boundary
+        if (wordLeft < swatchRight - 5) continue;
+        if (wordLeft > rightBoundary) continue;
+
+        // Word must be vertically aligned with swatch
+        const verticalPadding = swatchHeight * 0.6;
+        const verticallyAligned = wordCenterY >= swatch.bounds.minY - verticalPadding &&
+                                   wordCenterY <= swatch.bounds.maxY + verticalPadding;
+
+        if (!verticallyAligned) continue;
+
+        swatchWords.push(word);
+      }
+
+      if (swatchWords.length === 0) continue;
+
+      // Sort words by x position to form the text
+      swatchWords.sort((a, b) => a.bbox.x0 - b.bbox.x0);
+
+      // Combine words into name
+      let name = swatchWords.map(w => w.text).join(' ').trim();
       name = cleanOcrText(name);
 
-      const avgConfidence = line.words.reduce((s, w) => s + w.confidence, 0) / line.words.length;
+      const avgConfidence = swatchWords.reduce((s, w) => s + w.confidence, 0) / swatchWords.length;
 
-      // Skip entries with invalid names (fragments, too short, etc.)
+      // Skip entries with invalid names
       if (!isValidPlantName(name)) {
         continue;
       }
@@ -271,15 +252,21 @@ const LegendParser = (() => {
         // Consider it colored if:
         // 1. Not too bright (white) or too dark (black)
         // 2. Has some color saturation (not pure gray/black text)
-        // 3. Not typical blue-gray text color (higher threshold for blue-gray range)
+        // 3. Not typical blue-gray text color
         const isBrightEnough = brightness > 30 && brightness < 240;
         const hasColor = maxDiff > 10;
 
-        // Blue-gray text detection: blue-ish grays often used for text/labels
-        // These typically have low saturation and b > r and b > g
-        const isBlueGrayText = b > r && b > g && saturation < 0.25 && brightness > 100 && brightness < 180;
+        // Blue-gray text detection: catch the specific range seen in legend text
+        // These colors cluster around rgb(100-125, 130-150, 165-185) with b > g > r
+        const isBlueGray = b > g && g > r &&
+                          r >= 95 && r <= 130 &&
+                          g >= 125 && g <= 155 &&
+                          b >= 160 && b <= 190;
 
-        if (isBrightEnough && hasColor && !isBlueGrayText) {
+        // Also catch general low-saturation blue-ish grays
+        const isLowSatBlueGray = b > r && b > g && saturation < 0.45 && brightness > 100 && brightness < 180;
+
+        if (isBrightEnough && hasColor && !isBlueGray && !isLowSatBlueGray) {
           colorMask[idx] = 1;
           colorValues[idx] = [r, g, b];
         }
@@ -371,10 +358,23 @@ const LegendParser = (() => {
       const avgColor = [Math.round(rSum / n), Math.round(gSum / n), Math.round(bSum / n)];
 
       // Additional check: reject if color is too gray (low saturation)
-      const maxC = Math.max(avgColor[0], avgColor[1], avgColor[2]);
-      const minC = Math.min(avgColor[0], avgColor[1], avgColor[2]);
+      const [avgR, avgG, avgB] = avgColor;
+      const maxC = Math.max(avgR, avgG, avgB);
+      const minC = Math.min(avgR, avgG, avgB);
       const colorfulness = maxC - minC;
-      if (colorfulness < 15 && maxC > 50 && maxC < 220) continue; // Gray region, likely not a swatch
+      if (colorfulness < 20 && maxC > 50 && maxC < 220) continue; // Gray region, likely not a swatch
+
+      // Reject blue-gray colors that are typical of text
+      // These cluster around rgb(100-125, 130-150, 165-185) with pattern b > g > r
+      const isBlueGrayColor = avgB > avgG && avgG > avgR &&
+                              avgR >= 90 && avgR <= 135 &&
+                              avgG >= 120 && avgG <= 160 &&
+                              avgB >= 155 && avgB <= 195;
+      if (isBlueGrayColor) continue;
+
+      // Also reject low saturation blue-ish swatches
+      const swatchSaturation = maxC === 0 ? 0 : (maxC - minC) / maxC;
+      if (avgB > avgR && avgB > avgG && swatchSaturation < 0.4) continue;
 
       swatches.push({
         color: avgColor,
