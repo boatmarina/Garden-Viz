@@ -1,4 +1,7 @@
 (() => {
+  // Cache version — bump this when processing logic changes to invalidate stale results
+  const CACHE_VERSION = 2;
+
   // ---- State ----
   let image = null;
   let imageData = null;
@@ -171,7 +174,8 @@
     renderColorEntries();
     clearHighlight();
     hideCropSelection();
-    const saved = localStorage.getItem('gardenViz_' + file.name);
+    const cacheKey = 'gardenViz_v' + CACHE_VERSION + '_' + file.name;
+    const saved = localStorage.getItem(cacheKey);
     if (saved) {
       try {
         const data = JSON.parse(saved);
@@ -874,7 +878,7 @@
   function autoSave() {
     const name = canvas.dataset.filename;
     if (!name) return;
-    localStorage.setItem('gardenViz_' + name, JSON.stringify({ colorMap, markers }));
+    localStorage.setItem('gardenViz_v' + CACHE_VERSION + '_' + name, JSON.stringify({ colorMap, markers }));
   }
 
   // ---- Plant List View ----
