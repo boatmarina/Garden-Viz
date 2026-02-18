@@ -65,13 +65,56 @@ const LegendParser = (() => {
       }));
     }
 
-    // 3. Associate each swatch with text to its right using exclusive assignment
-    //    Each word goes to only its nearest swatch to prevent fragments
+    // 3. Associate each swatch with text using line-based grouping
     const entries = [];
     const words = ocrResult.data.words || [];
 
-    // Build a map of which swatches each word could belong to, with distances
-    const wordCandidates = new Map(); // word index -> [{swatchIdx, distance}]
+    // First, group words into text lines
+    const sortedWords = [...words].sort((a, b) => {
+      const aY = (a.bbox.y0 + a.bbox.y1) / 2;
+      const bY = (b.bbox.y0 + b.bbox.y1) / 2;
+      return aY - bY;
+    });
+
+    const textLines = [];
+    let currentLine = [];
+    let currentLineY = -1000;
+
+    for (const word of sortedWords) {
+      const wordY = (word.bbox.y0 + word.bbox.y1) / 2;
+      const wordHeight = word.bbox.y1 - word.bbox.y0;
+
+      // If word is on a new line (more than 60% of word height apart)
+      if (Math.abs(wordY - currentLineY) > wordHeight * 0.6) {
+        if (currentLine.length > 0) {
+          currentLine.sort((a, b) => a.bbox.x0 - b.bbox.x0);
+          textLines.push({
+            words: currentLine,
+            centerY: currentLineY,
+            minY: Math.min(...currentLine.map(w => w.bbox.y0)),
+            maxY: Math.max(...currentLine.map(w => w.bbox.y1)),
+            minX: Math.min(...currentLine.map(w => w.bbox.x0))
+          });
+        }
+        currentLine = [word];
+        currentLineY = wordY;
+      } else {
+        currentLine.push(word);
+      }
+    }
+    if (currentLine.length > 0) {
+      currentLine.sort((a, b) => a.bbox.x0 - b.bbox.x0);
+      textLines.push({
+        words: currentLine,
+        centerY: (currentLine[0].bbox.y0 + currentLine[0].bbox.y1) / 2,
+        minY: Math.min(...currentLine.map(w => w.bbox.y0)),
+        maxY: Math.max(...currentLine.map(w => w.bbox.y1)),
+        minX: Math.min(...currentLine.map(w => w.bbox.x0))
+      });
+    }
+
+    // Associate each swatch with the nearest text line to its right
+    const usedLines = new Set();
 
     for (let si = 0; si < swatches.length; si++) {
       const swatch = swatches[si];
@@ -79,70 +122,49 @@ const LegendParser = (() => {
       const swatchHeight = swatch.bounds.maxY - swatch.bounds.minY;
       const swatchRight = swatch.bounds.maxX;
 
-      for (let wi = 0; wi < words.length; wi++) {
-        const w = words[wi];
-        const wordCenterY = (w.bbox.y0 + w.bbox.y1) / 2;
-        const wordLeft = w.bbox.x0;
+      // Find the best matching line for this swatch
+      let bestLine = null;
+      let bestDistance = Infinity;
 
-        // Vertical alignment: word center within swatch's vertical range (with padding)
-        const verticalPadding = swatchHeight * 0.75;
-        const verticallyAligned = wordCenterY >= swatch.bounds.minY - verticalPadding &&
-                                   wordCenterY <= swatch.bounds.maxY + verticalPadding;
+      for (let li = 0; li < textLines.length; li++) {
+        if (usedLines.has(li)) continue;
 
-        // Horizontal position: word starts after swatch ends (with small tolerance)
-        // and is not too far away (max ~40% of image width)
-        const maxTextDistance = imgData.width * 0.4;
-        const horizontallyValid = wordLeft >= swatchRight - 5 &&
-                                   wordLeft <= swatchRight + maxTextDistance;
+        const line = textLines[li];
 
-        if (verticallyAligned && horizontallyValid) {
-          // Compute distance from word to swatch (prioritize horizontal proximity)
-          const hDist = Math.max(0, wordLeft - swatchRight);
-          const vDist = Math.abs(wordCenterY - swatchCenterY);
-          const dist = Math.sqrt(hDist * hDist + vDist * vDist);
+        // Line must be to the right of swatch (with small tolerance)
+        if (line.minX < swatchRight - 5) continue;
 
-          if (!wordCandidates.has(wi)) {
-            wordCandidates.set(wi, []);
-          }
-          wordCandidates.get(wi).push({ swatchIdx: si, distance: dist });
+        // Line must be within reasonable horizontal distance
+        const hDist = line.minX - swatchRight;
+        if (hDist > imgData.width * 0.35) continue;
+
+        // Vertical alignment: line overlaps with swatch's vertical range
+        const verticalPadding = swatchHeight * 0.5;
+        const lineOverlaps = line.centerY >= swatch.bounds.minY - verticalPadding &&
+                              line.centerY <= swatch.bounds.maxY + verticalPadding;
+
+        if (!lineOverlaps) continue;
+
+        // Calculate distance (favor horizontal proximity, then vertical)
+        const vDist = Math.abs(line.centerY - swatchCenterY);
+        const dist = hDist + vDist * 0.5; // Weight horizontal more
+
+        if (dist < bestDistance) {
+          bestDistance = dist;
+          bestLine = li;
         }
       }
-    }
 
-    // Assign each word exclusively to its nearest swatch
-    const swatchAssignedWords = new Map(); // swatch index -> [word objects]
-    for (const [wi, candidates] of wordCandidates) {
-      candidates.sort((a, b) => a.distance - b.distance);
-      const closestSwatchIdx = candidates[0].swatchIdx;
+      if (bestLine === null) continue;
 
-      if (!swatchAssignedWords.has(closestSwatchIdx)) {
-        swatchAssignedWords.set(closestSwatchIdx, []);
-      }
-      swatchAssignedWords.get(closestSwatchIdx).push(words[wi]);
-    }
+      usedLines.add(bestLine);
+      const line = textLines[bestLine];
 
-    // Build entries from exclusively assigned words
-    for (let si = 0; si < swatches.length; si++) {
-      const swatch = swatches[si];
-      const assignedWords = swatchAssignedWords.get(si) || [];
-
-      if (assignedWords.length === 0) continue;
-
-      const swatchHeight = swatch.bounds.maxY - swatch.bounds.minY;
-
-      // Sort by vertical position first, then horizontal
-      assignedWords.sort((a, b) => {
-        const aY = (a.bbox.y0 + a.bbox.y1) / 2;
-        const bY = (b.bbox.y0 + b.bbox.y1) / 2;
-        if (Math.abs(aY - bY) > swatchHeight * 0.3) return aY - bY;
-        return a.bbox.x0 - b.bbox.x0;
-      });
-
-      // Combine all assigned words into the plant name
-      let name = assignedWords.map(w => w.text).join(' ').trim();
+      // Combine all words in the line into the plant name
+      let name = line.words.map(w => w.text).join(' ').trim();
       name = cleanOcrText(name);
 
-      const avgConfidence = assignedWords.reduce((s, w) => s + w.confidence, 0) / assignedWords.length;
+      const avgConfidence = line.words.reduce((s, w) => s + w.confidence, 0) / line.words.length;
 
       // Skip entries with invalid names (fragments, too short, etc.)
       if (!isValidPlantName(name)) {
@@ -169,14 +191,55 @@ const LegendParser = (() => {
       entries.push(entry);
     }
 
+    // Remove duplicate entries (same name with similar colors)
+    const deduped = deduplicateEntries(entries);
+
     // Debug: Log final entries
-    console.log(`[LegendParser] Final entries (${entries.length}):`);
-    entries.forEach((e, i) => {
+    console.log(`[LegendParser] Final entries (${deduped.length} after dedup from ${entries.length}):`);
+    deduped.forEach((e, i) => {
       console.log(`  [${i}] "${e.name}" - rgb(${e.color.join(',')})`);
     });
 
     if (onProgress) onProgress({ status: 'done', progress: 100, message: 'Done!' });
-    return entries;
+    return deduped;
+  }
+
+  /**
+   * Remove duplicate entries that have the same name or very similar colors.
+   */
+  function deduplicateEntries(entries) {
+    if (entries.length === 0) return entries;
+
+    const result = [];
+    const seenNames = new Set();
+
+    for (const entry of entries) {
+      // Normalize name for comparison
+      const normalizedName = entry.name.toLowerCase().replace(/[^a-z]/g, '');
+
+      // Skip if we've seen this exact name
+      if (seenNames.has(normalizedName)) continue;
+
+      // Check for very similar names (edit distance or prefix matching)
+      let isDuplicate = false;
+      for (const seen of seenNames) {
+        // If one is a prefix of the other and they're similar length
+        if (normalizedName.startsWith(seen) || seen.startsWith(normalizedName)) {
+          const lenDiff = Math.abs(normalizedName.length - seen.length);
+          if (lenDiff < 5) {
+            isDuplicate = true;
+            break;
+          }
+        }
+      }
+
+      if (!isDuplicate) {
+        seenNames.add(normalizedName);
+        result.push(entry);
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -200,13 +263,23 @@ const LegendParser = (() => {
         const brightness = (r + g + b) / 3;
         const maxDiff = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(r - b));
 
+        // Calculate HSL saturation to better detect colorful pixels
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const saturation = max === 0 ? 0 : (max - min) / max;
+
         // Consider it colored if:
         // 1. Not too bright (white) or too dark (black)
         // 2. Has some color saturation (not pure gray/black text)
+        // 3. Not typical blue-gray text color (higher threshold for blue-gray range)
         const isBrightEnough = brightness > 30 && brightness < 240;
         const hasColor = maxDiff > 10;
 
-        if (isBrightEnough && hasColor) {
+        // Blue-gray text detection: blue-ish grays often used for text/labels
+        // These typically have low saturation and b > r and b > g
+        const isBlueGrayText = b > r && b > g && saturation < 0.25 && brightness > 100 && brightness < 180;
+
+        if (isBrightEnough && hasColor && !isBlueGrayText) {
           colorMask[idx] = 1;
           colorValues[idx] = [r, g, b];
         }
@@ -264,9 +337,9 @@ const LegendParser = (() => {
 
     // Filter to regions that look like swatches
     const swatches = [];
-    const minSwatchSize = 10; // Minimum dimension
-    const maxSwatchSize = Math.min(width, height) * 0.15; // Max 15% of image dimension
-    const minPixels = 50; // Minimum number of pixels
+    const minSwatchSize = 12; // Minimum dimension (slightly larger to filter noise)
+    const maxSwatchSize = Math.min(width, height) * 0.12; // Max 12% of image dimension
+    const minPixels = 80; // Minimum number of pixels (larger swatches more reliable)
 
     for (const [label, data] of labelColors) {
       const { pixels, bounds } = data;
@@ -280,12 +353,12 @@ const LegendParser = (() => {
 
       // Aspect ratio filter: swatches are usually roughly square or slightly rectangular
       const aspectRatio = Math.max(w, h) / Math.min(w, h);
-      if (aspectRatio > 5) continue; // Too elongated, probably not a swatch
+      if (aspectRatio > 4) continue; // Too elongated, probably not a swatch
 
       // Fill ratio: swatches should be mostly filled
       const area = w * h;
       const fillRatio = pixels.length / area;
-      if (fillRatio < 0.3) continue; // Too sparse, probably not a solid swatch
+      if (fillRatio < 0.35) continue; // Too sparse, probably not a solid swatch
 
       // Calculate average color
       let rSum = 0, gSum = 0, bSum = 0;
@@ -296,6 +369,12 @@ const LegendParser = (() => {
       }
       const n = pixels.length;
       const avgColor = [Math.round(rSum / n), Math.round(gSum / n), Math.round(bSum / n)];
+
+      // Additional check: reject if color is too gray (low saturation)
+      const maxC = Math.max(avgColor[0], avgColor[1], avgColor[2]);
+      const minC = Math.min(avgColor[0], avgColor[1], avgColor[2]);
+      const colorfulness = maxC - minC;
+      if (colorfulness < 15 && maxC > 50 && maxC < 220) continue; // Gray region, likely not a swatch
 
       swatches.push({
         color: avgColor,
@@ -743,6 +822,10 @@ const LegendParser = (() => {
       /^\d/,                // Starts with number
       /^[a-z]{1,3}\b/,      // Starts with 1-3 lowercase letters (likely fragment)
       /^[A-Z][a-z]?\s+[a-z]{1,2}\b/i,  // Pattern like "Is si" or "Oe" - garbled OCR
+      /^(See|Also|Note|Legend|Key|Plant|Symbol|Color)\b/i,  // Common label words
+      /^Butter\s+and\b/i,   // Partial names like "Butter and Sugar"
+      /cere$/i,             // OCR fragment ending
+      /EH\s/i,              // OCR artifact
     ];
 
     for (const pattern of invalidPatterns) {
@@ -765,9 +848,14 @@ const LegendParser = (() => {
     if (alphaCount < name.length * 0.5) return false;
 
     // Reject common non-plant words that might pass other checks
-    const nonPlantWords = ['one', 'two', 'three', 'four', 'five', 'none', 'some', 'more', 'less'];
+    const nonPlantWords = ['one', 'two', 'three', 'four', 'five', 'none', 'some', 'more', 'less',
+                           'this', 'that', 'these', 'those', 'the', 'for', 'are', 'but'];
     const firstWordLower = words[0].toLowerCase();
     if (nonPlantWords.includes(firstWordLower)) return false;
+
+    // Reject if contains too many uppercase isolated letters (garbled OCR)
+    const isolatedUppercase = name.match(/\b[A-Z]\b/g);
+    if (isolatedUppercase && isolatedUppercase.length > 2) return false;
 
     return true;
   }
