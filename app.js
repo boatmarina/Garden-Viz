@@ -200,19 +200,39 @@
     renderColorEntries();
     clearHighlight();
     hideCropSelection();
+    canvas.dataset.filename = file.name;
+
+    // Restore saved state from IndexedDB
     const cacheKey = 'gardenViz_v' + CACHE_VERSION + '_' + file.name;
-    const saved = localStorage.getItem(cacheKey);
-    if (saved) {
-      try {
-        const data = JSON.parse(saved);
+    try {
+      const db = await openDB();
+      const tx = db.transaction(AUTOSAVE_STORE, 'readonly');
+      const data = await new Promise((resolve, reject) => {
+        const req = tx.objectStore(AUTOSAVE_STORE).get(cacheKey);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      if (data) {
         if (data.colorMap) { colorMap = data.colorMap; nextColorId = Math.max(...colorMap.map(c => c.id), 0) + 1; }
         if (data.markers) { markers = data.markers; nextMarkerId = Math.max(...markers.map(m => m.id), 0) + 1; }
         if (data.annotations) { annotations = data.annotations; nextAnnotationId = Math.max(...annotations.map(a => a.id), 0) + 1; }
         renderMarkers();
         renderColorEntries();
-      } catch (_) {}
+      }
+    } catch (_) {
+      // Fall back to localStorage for older saves
+      const saved = localStorage.getItem(cacheKey);
+      if (saved) {
+        try {
+          const d = JSON.parse(saved);
+          if (d.colorMap) { colorMap = d.colorMap; nextColorId = Math.max(...colorMap.map(c => c.id), 0) + 1; }
+          if (d.markers) { markers = d.markers; nextMarkerId = Math.max(...markers.map(m => m.id), 0) + 1; }
+          if (d.annotations) { annotations = d.annotations; nextAnnotationId = Math.max(...annotations.map(a => a.id), 0) + 1; }
+          renderMarkers();
+          renderColorEntries();
+        } catch (__) {}
+      }
     }
-    canvas.dataset.filename = file.name;
   }
 
   // ---- Canvas Drawing ----
@@ -419,7 +439,6 @@
     };
 
     annotations.push(annotation);
-    console.log('Created annotation:', annotation, 'Total annotations:', annotations.length);
     pendingAnnotationCoords = null;
     autoSave();
     renderMarkers();
@@ -972,14 +991,12 @@
     }
 
     // Always render annotations
-    console.log('Rendering annotations:', annotations.length, 'overlay:', overlay);
     annotations.forEach(a => {
       const el = document.createElement('div');
       el.className = 'annotation' + (a.id === selectedAnnotationId ? ' selected' : '');
       el.style.left = a.x + 'px';
       el.style.top = a.y + 'px';
       el.dataset.id = a.id;
-      console.log('Annotation element:', el, 'at', a.x, a.y);
 
       const label = document.createElement('span');
       label.className = 'annotation-label';
@@ -1148,11 +1165,17 @@
     autoSave();
   });
 
-  // ---- Auto-save ----
+  // ---- Auto-save (IndexedDB) ----
   function autoSave() {
     const name = canvas.dataset.filename;
     if (!name) return;
-    localStorage.setItem('gardenViz_v' + CACHE_VERSION + '_' + name, JSON.stringify({ colorMap, markers, annotations }));
+    const key = 'gardenViz_v' + CACHE_VERSION + '_' + name;
+    openDB().then(db => {
+      const tx = db.transaction(AUTOSAVE_STORE, 'readwrite');
+      tx.objectStore(AUTOSAVE_STORE).put({ key, colorMap, markers, annotations });
+    }).catch(err => {
+      console.warn('Auto-save failed:', err);
+    });
   }
 
   // ---- Plant List View ----
@@ -1619,8 +1642,9 @@
 
   // ---- IndexedDB Image Storage ----
   const DB_NAME = 'GardenVizDB';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   const STORE_NAME = 'savedImages';
+  const AUTOSAVE_STORE = 'autoSave';
 
   function openDB() {
     return new Promise((resolve, reject) => {
@@ -1631,6 +1655,9 @@
         const db = e.target.result;
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+        }
+        if (!db.objectStoreNames.contains(AUTOSAVE_STORE)) {
+          db.createObjectStore(AUTOSAVE_STORE, { keyPath: 'key' });
         }
       };
     });
