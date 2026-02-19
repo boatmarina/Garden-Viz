@@ -419,6 +419,7 @@
     };
 
     annotations.push(annotation);
+    console.log('Created annotation:', annotation, 'Total annotations:', annotations.length);
     pendingAnnotationCoords = null;
     autoSave();
     renderMarkers();
@@ -971,12 +972,14 @@
     }
 
     // Always render annotations
+    console.log('Rendering annotations:', annotations.length, 'overlay:', overlay);
     annotations.forEach(a => {
       const el = document.createElement('div');
       el.className = 'annotation' + (a.id === selectedAnnotationId ? ' selected' : '');
       el.style.left = a.x + 'px';
       el.style.top = a.y + 'px';
       el.dataset.id = a.id;
+      console.log('Annotation element:', el, 'at', a.x, a.y);
 
       const label = document.createElement('span');
       label.className = 'annotation-label';
