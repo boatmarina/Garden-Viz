@@ -977,3 +977,90 @@ img.plant-list-swatch {
   align-items: center;
   justify-content: center;
 }
+
+/* ========== Annotation Mode ========== */
+.canvas-wrap.annotating {
+  cursor: crosshair;
+}
+
+#btnAnnotate.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+/* Annotation markers - pin style */
+.annotation {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  margin-left: -12px;
+  margin-top: -24px;
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 2;
+  transform: scale(var(--marker-scale, 1));
+  transform-origin: center bottom;
+}
+
+.annotation::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--accent);
+}
+
+.annotation::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 18px;
+  height: 18px;
+  background: var(--accent);
+  border-radius: 50% 50% 50% 0;
+  transform: translateX(-50%) rotate(-45deg);
+  box-shadow: 0 1px 4px rgba(0,0,0,.3);
+}
+
+.annotation:hover {
+  transform: scale(calc(var(--marker-scale, 1) * 1.2));
+  z-index: 5;
+}
+
+.annotation.selected {
+  z-index: 6;
+}
+
+.annotation.selected::after {
+  background: #2c5a3a;
+  box-shadow: 0 0 0 3px var(--accent-light), 0 2px 8px rgba(0,0,0,.4);
+}
+
+.annotation-label {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%) scale(min(calc(1 / var(--marker-scale, 1)), 3));
+  transform-origin: center bottom;
+  white-space: nowrap;
+  font-size: 11px;
+  background: var(--accent);
+  color: white;
+  padding: 3px 8px;
+  border-radius: 3px;
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0,0,0,.2);
+}
+
+.annotation:hover .annotation-label,
+.annotation.selected .annotation-label {
+  background: #2c5a3a;
+}
