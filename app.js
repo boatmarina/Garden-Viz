@@ -1,6 +1,6 @@
 (() => {
   // Cache version — bump this when processing logic changes to invalidate stale results
-  const CACHE_VERSION = 2;
+  const CACHE_VERSION = 3;
 
   // ---- State ----
   let image = null;
@@ -53,6 +53,13 @@
   // View state (for plant list view)
   let currentView = 'map'; // 'map' or 'list'
   const hasPlantListView = btnToggleView && plantListView && plantListContent;
+
+  // Annotation mode state
+  let annotations = [];
+  let nextAnnotationId = 1;
+  let annotateMode = false;
+  let selectedAnnotationId = null;
+  const btnAnnotate = document.getElementById('btnAnnotate');
 
   const colorEntries = document.getElementById('colorEntries');
   const tolSlider = document.getElementById('tolSlider');
@@ -161,11 +168,15 @@
     image = img;
     markers = [];
     colorMap = [];
+    annotations = [];
     selectedId = null;
+    selectedAnnotationId = null;
     nextMarkerId = 1;
     nextColorId = 1;
+    nextAnnotationId = 1;
     imageData = null;
     cropRect = null;
+    exitAnnotateMode();
     uploadArea.style.display = 'none';
     viewerContainer.style.display = 'flex';
     drawImage();
@@ -181,6 +192,7 @@
         const data = JSON.parse(saved);
         if (data.colorMap) { colorMap = data.colorMap; nextColorId = Math.max(...colorMap.map(c => c.id), 0) + 1; }
         if (data.markers) { markers = data.markers; nextMarkerId = Math.max(...markers.map(m => m.id), 0) + 1; }
+        if (data.annotations) { annotations = data.annotations; nextAnnotationId = Math.max(...annotations.map(a => a.id), 0) + 1; }
         renderMarkers();
         renderColorEntries();
       } catch (_) {}
@@ -234,6 +246,17 @@
   // ---- Pan & Zoom ----
   canvasWrap.addEventListener('mousedown', e => {
     if (e.target.classList.contains('marker')) return;
+    if (e.target.classList.contains('annotation')) return;
+
+    // Annotation mode: place a new annotation
+    if (annotateMode) {
+      e.preventDefault();
+      const rect = canvasWrap.getBoundingClientRect();
+      const imgX = (e.clientX - rect.left - offsetX) / scale;
+      const imgY = (e.clientY - rect.top - offsetY) / scale;
+      promptForAnnotation(imgX, imgY);
+      return;
+    }
 
     // Crop mode: start drawing selection
     if (cropMode) {
@@ -304,7 +327,133 @@
     image = null;
     imageData = null;
     exitCropMode();
+    exitAnnotateMode();
   });
+
+  // ---- Annotation Mode ----
+  if (btnAnnotate) {
+    btnAnnotate.addEventListener('click', () => {
+      if (annotateMode) {
+        exitAnnotateMode();
+      } else {
+        enterAnnotateMode();
+      }
+    });
+  }
+
+  function enterAnnotateMode() {
+    annotateMode = true;
+    exitCropMode();
+    canvasWrap.classList.add('annotating');
+    btnAnnotate.classList.add('active');
+    // Hide auto-scanned markers, show only annotations
+    renderMarkers();
+  }
+
+  function exitAnnotateMode() {
+    annotateMode = false;
+    canvasWrap.classList.remove('annotating');
+    if (btnAnnotate) btnAnnotate.classList.remove('active');
+    selectedAnnotationId = null;
+    renderMarkers();
+  }
+
+  function promptForAnnotation(imgX, imgY) {
+    const name = prompt('Enter plant name:');
+    if (!name || !name.trim()) return;
+
+    const cleanedName = name.trim();
+    const dbEntry = lookupPlant(cleanedName);
+
+    const annotation = {
+      id: nextAnnotationId++,
+      x: imgX,
+      y: imgY,
+      name: cleanedName,
+      common: dbEntry ? dbEntry.common : cleanedName,
+      botanical: dbEntry ? dbEntry.botanical : '',
+      type: dbEntry ? dbEntry.type : '',
+      size: dbEntry ? dbEntry.size : '',
+      bloom: dbEntry ? dbEntry.bloom : '',
+      sun: dbEntry ? dbEntry.sun : '',
+      water: dbEntry ? dbEntry.water : '',
+      notes: dbEntry ? dbEntry.notes : '',
+      photos: [],
+      photosFetched: false
+    };
+
+    annotations.push(annotation);
+    autoSave();
+    renderMarkers();
+    selectAnnotation(annotation.id);
+  }
+
+  async function selectAnnotation(id) {
+    selectedAnnotationId = id;
+    selectedId = null; // Deselect any marker
+    const a = annotations.find(ann => ann.id === id);
+    if (!a) return;
+
+    panelPlaceholder.style.display = 'none';
+    panelContent.style.display = 'block';
+    plantName.textContent = a.common || a.name;
+    fieldCommon.value = a.common || '';
+    fieldBotanical.value = a.botanical || '';
+    fieldType.value = a.type || '';
+    fieldSize.value = a.size || '';
+    fieldBloom.value = a.bloom || '';
+    fieldSun.value = a.sun || '';
+    fieldWater.value = a.water || '';
+    fieldNotes.value = a.notes || '';
+
+    // No color swatch for annotations
+    markerColorSwatch.style.display = 'none';
+
+    // Show loading state for photos
+    plantPhotos.innerHTML = '<p class="loading-photos">Loading plant images...</p>';
+    renderMarkers();
+
+    // Fetch images if not already fetched
+    if (!a.photosFetched) {
+      const searchName = a.botanical || a.common || a.name;
+      try {
+        const images = await ImageFetcher.fetchImages(searchName);
+        a.photos = [...(images.closeup || []), ...(images.full || [])];
+        a.photosFetched = true;
+        autoSave();
+      } catch (err) {
+        console.warn('Failed to fetch images:', err);
+        a.photos = [];
+        a.photosFetched = true;
+      }
+    }
+
+    // Display photos
+    displayAnnotationPhotos(a);
+
+    // Show delete button for annotations
+    btnDeleteMarker.style.display = 'block';
+  }
+
+  function displayAnnotationPhotos(a) {
+    plantPhotos.innerHTML = '';
+    if (!a.photos || a.photos.length === 0) {
+      plantPhotos.innerHTML = '<p class="no-photos">No photos found for this plant.</p>';
+      return;
+    }
+    a.photos.forEach((url, index) => {
+      const container = document.createElement('div');
+      container.className = 'photo-container';
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = `${a.common || a.name} - Photo ${index + 1}`;
+      img.loading = 'lazy';
+      img.onerror = () => container.style.display = 'none';
+      img.addEventListener('click', () => window.open(url, '_blank'));
+      container.appendChild(img);
+      plantPhotos.appendChild(container);
+    });
+  }
 
   function zoomCenter(factor) {
     const rect = canvasWrap.getBoundingClientRect();
@@ -723,40 +872,66 @@
   // ---- Render Markers ----
   function renderMarkers() {
     overlay.innerHTML = '';
-    markers.forEach(m => {
+
+    // Only render auto-scanned markers when NOT in annotate mode
+    if (!annotateMode) {
+      markers.forEach(m => {
+        const el = document.createElement('div');
+        el.className = 'marker' + (m.id === selectedId ? ' selected' : '');
+        el.style.left = m.x + 'px';
+        el.style.top = m.y + 'px';
+
+        // Find the color entry to get the color
+        const colorEntry = colorMap.find(c => c.id === m.colorId);
+
+        // Get the color to display (from marker or color entry)
+        const displayColor = m.markerColor || (colorEntry && colorEntry.color);
+
+        // Set background color for the marker dot
+        if (displayColor && Array.isArray(displayColor) && displayColor.length >= 3) {
+          el.style.backgroundColor = `rgb(${displayColor[0]},${displayColor[1]},${displayColor[2]})`;
+        }
+
+        el.dataset.id = m.id;
+        const label = document.createElement('span');
+        label.className = 'marker-label';
+        label.textContent = m.common || m.name;
+        el.appendChild(label);
+        el.addEventListener('click', e => {
+          e.stopPropagation();
+          selectMarker(m.id);
+        });
+        overlay.appendChild(el);
+      });
+    }
+
+    // Always render annotations
+    annotations.forEach(a => {
       const el = document.createElement('div');
-      el.className = 'marker' + (m.id === selectedId ? ' selected' : '');
-      el.style.left = m.x + 'px';
-      el.style.top = m.y + 'px';
+      el.className = 'annotation' + (a.id === selectedAnnotationId ? ' selected' : '');
+      el.style.left = a.x + 'px';
+      el.style.top = a.y + 'px';
+      el.dataset.id = a.id;
 
-      // Find the color entry to get the color
-      const colorEntry = colorMap.find(c => c.id === m.colorId);
-
-      // Get the color to display (from marker or color entry)
-      const displayColor = m.markerColor || (colorEntry && colorEntry.color);
-
-      // Set background color for the marker dot
-      if (displayColor && Array.isArray(displayColor) && displayColor.length >= 3) {
-        el.style.backgroundColor = `rgb(${displayColor[0]},${displayColor[1]},${displayColor[2]})`;
-      }
-
-      el.dataset.id = m.id;
       const label = document.createElement('span');
-      label.className = 'marker-label';
-      label.textContent = m.common || m.name;
+      label.className = 'annotation-label';
+      label.textContent = a.common || a.name;
       el.appendChild(label);
+
       el.addEventListener('click', e => {
         e.stopPropagation();
-        selectMarker(m.id);
+        selectAnnotation(a.id);
       });
       overlay.appendChild(el);
     });
+
     updateMarkerScale();
   }
 
   // ---- Selection & Detail Panel ----
   async function selectMarker(id) {
     selectedId = id;
+    selectedAnnotationId = null; // Deselect any annotation
     const m = markers.find(m => m.id === id);
     if (!m) return;
     panelPlaceholder.style.display = 'none';
@@ -845,6 +1020,26 @@
   });
 
   function saveCurrentMarker() {
+    // Handle saving annotation edits
+    if (selectedAnnotationId) {
+      const a = annotations.find(ann => ann.id === selectedAnnotationId);
+      if (!a) return;
+      a.common = fieldCommon.value;
+      a.botanical = fieldBotanical.value;
+      a.type = fieldType.value;
+      a.size = fieldSize.value;
+      a.bloom = fieldBloom.value;
+      a.sun = fieldSun.value;
+      a.water = fieldWater.value;
+      a.notes = fieldNotes.value;
+      a.photosFetched = false;
+      a.photos = [];
+      renderMarkers();
+      autoSave();
+      return;
+    }
+
+    // Handle saving marker edits
     const m = markers.find(m => m.id === selectedId);
     if (!m) return;
     m.common = fieldCommon.value;
@@ -865,6 +1060,17 @@
   }
 
   btnDeleteMarker.addEventListener('click', () => {
+    // Handle deleting annotations
+    if (selectedAnnotationId) {
+      annotations = annotations.filter(a => a.id !== selectedAnnotationId);
+      selectedAnnotationId = null;
+      panelContent.style.display = 'none';
+      panelPlaceholder.style.display = 'block';
+      renderMarkers();
+      autoSave();
+      return;
+    }
+    // Handle deleting markers
     if (!selectedId) return;
     markers = markers.filter(m => m.id !== selectedId);
     selectedId = null;
@@ -878,7 +1084,7 @@
   function autoSave() {
     const name = canvas.dataset.filename;
     if (!name) return;
-    localStorage.setItem('gardenViz_v' + CACHE_VERSION + '_' + name, JSON.stringify({ colorMap, markers }));
+    localStorage.setItem('gardenViz_v' + CACHE_VERSION + '_' + name, JSON.stringify({ colorMap, markers, annotations }));
   }
 
   // ---- Plant List View ----
