@@ -59,7 +59,22 @@
   let nextAnnotationId = 1;
   let annotateMode = false;
   let selectedAnnotationId = null;
+  let pendingAnnotationCoords = null;
   const btnAnnotate = document.getElementById('btnAnnotate');
+  const btnSaveImage = document.getElementById('btnSaveImage');
+  const btnLoadSaved = document.getElementById('btnLoadSaved');
+
+  // Annotation modal
+  const annotationModal = document.getElementById('annotationModal');
+  const annotationNameInput = document.getElementById('annotationNameInput');
+  const annotationSuggestions = document.getElementById('annotationSuggestions');
+  const annotationModalCancel = document.getElementById('annotationModalCancel');
+  const annotationModalSave = document.getElementById('annotationModalSave');
+
+  // Saved images modal
+  const savedImagesModal = document.getElementById('savedImagesModal');
+  const savedImagesList = document.getElementById('savedImagesList');
+  const savedImagesModalClose = document.getElementById('savedImagesModalClose');
 
   const colorEntries = document.getElementById('colorEntries');
   const tolSlider = document.getElementById('tolSlider');
@@ -359,16 +374,36 @@
   }
 
   function promptForAnnotation(imgX, imgY) {
-    const name = prompt('Enter plant name:');
-    if (!name || !name.trim()) return;
+    // Store coordinates for when modal is confirmed
+    pendingAnnotationCoords = { x: imgX, y: imgY };
+
+    // Populate dropdown with colorMap entries
+    annotationSuggestions.innerHTML = '';
+    colorMap.forEach(entry => {
+      const option = document.createElement('option');
+      option.value = entry.name;
+      annotationSuggestions.appendChild(option);
+    });
+
+    // Clear and focus input
+    annotationNameInput.value = '';
+    annotationModal.style.display = 'flex';
+    setTimeout(() => annotationNameInput.focus(), 50);
+  }
+
+  function createAnnotation(name) {
+    if (!name || !name.trim() || !pendingAnnotationCoords) return;
 
     const cleanedName = name.trim();
+
+    // Check if this name matches a colorMap entry
+    const colorEntry = colorMap.find(c => c.name.toLowerCase() === cleanedName.toLowerCase());
     const dbEntry = lookupPlant(cleanedName);
 
     const annotation = {
       id: nextAnnotationId++,
-      x: imgX,
-      y: imgY,
+      x: pendingAnnotationCoords.x,
+      y: pendingAnnotationCoords.y,
       name: cleanedName,
       common: dbEntry ? dbEntry.common : cleanedName,
       botanical: dbEntry ? dbEntry.botanical : '',
@@ -378,14 +413,44 @@
       sun: dbEntry ? dbEntry.sun : '',
       water: dbEntry ? dbEntry.water : '',
       notes: dbEntry ? dbEntry.notes : '',
+      colorId: colorEntry ? colorEntry.id : null,
       photos: [],
       photosFetched: false
     };
 
     annotations.push(annotation);
+    pendingAnnotationCoords = null;
     autoSave();
     renderMarkers();
     selectAnnotation(annotation.id);
+  }
+
+  // Annotation modal handlers
+  if (annotationModalCancel) {
+    annotationModalCancel.addEventListener('click', () => {
+      annotationModal.style.display = 'none';
+      pendingAnnotationCoords = null;
+    });
+  }
+
+  if (annotationModalSave) {
+    annotationModalSave.addEventListener('click', () => {
+      annotationModal.style.display = 'none';
+      createAnnotation(annotationNameInput.value);
+    });
+  }
+
+  if (annotationNameInput) {
+    annotationNameInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        annotationModal.style.display = 'none';
+        createAnnotation(annotationNameInput.value);
+      } else if (e.key === 'Escape') {
+        annotationModal.style.display = 'none';
+        pendingAnnotationCoords = null;
+      }
+    });
   }
 
   async function selectAnnotation(id) {
@@ -1549,6 +1614,220 @@
     updateMarkerScale();
   };
 
+  // ---- IndexedDB Image Storage ----
+  const DB_NAME = 'GardenVizDB';
+  const DB_VERSION = 1;
+  const STORE_NAME = 'savedImages';
+
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+      request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+        }
+      };
+    });
+  }
+
+  async function saveImageToDB(name, imageDataUrl, thumbnail) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const record = {
+        name: name,
+        imageDataUrl: imageDataUrl,
+        thumbnail: thumbnail,
+        colorMap: colorMap,
+        markers: markers,
+        annotations: annotations,
+        savedAt: Date.now()
+      };
+      const request = store.add(record);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async function getAllSavedImages() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async function getSavedImage(id) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.get(id);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async function deleteSavedImage(id) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.delete(id);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  function createThumbnail(img, maxSize = 120) {
+    const thumbCanvas = document.createElement('canvas');
+    const ratio = Math.min(maxSize / img.width, maxSize / img.height);
+    thumbCanvas.width = img.width * ratio;
+    thumbCanvas.height = img.height * ratio;
+    const thumbCtx = thumbCanvas.getContext('2d');
+    thumbCtx.drawImage(img, 0, 0, thumbCanvas.width, thumbCanvas.height);
+    return thumbCanvas.toDataURL('image/jpeg', 0.7);
+  }
+
+  // Save image button
+  if (btnSaveImage) {
+    btnSaveImage.addEventListener('click', async () => {
+      if (!image) return;
+
+      const name = canvas.dataset.filename || 'Untitled';
+      const imageDataUrl = canvas.toDataURL('image/png');
+      const thumbnail = createThumbnail(image);
+
+      try {
+        await saveImageToDB(name, imageDataUrl, thumbnail);
+        alert('Image saved successfully!');
+      } catch (err) {
+        console.error('Failed to save image:', err);
+        alert('Failed to save image. Storage may be full.');
+      }
+    });
+  }
+
+  // Load saved images button
+  if (btnLoadSaved) {
+    btnLoadSaved.addEventListener('click', () => {
+      showSavedImagesModal();
+    });
+  }
+
+  async function showSavedImagesModal() {
+    savedImagesList.innerHTML = '<p class="no-entries">Loading...</p>';
+    savedImagesModal.style.display = 'flex';
+
+    try {
+      const images = await getAllSavedImages();
+      if (images.length === 0) {
+        savedImagesList.innerHTML = '<p class="no-entries">No saved images yet.</p>';
+        return;
+      }
+
+      savedImagesList.innerHTML = '';
+      images.sort((a, b) => b.savedAt - a.savedAt); // Most recent first
+
+      images.forEach(img => {
+        const item = document.createElement('div');
+        item.className = 'saved-image-item';
+
+        const date = new Date(img.savedAt);
+        const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const annotationCount = (img.annotations || []).length;
+        const markerCount = (img.markers || []).length;
+
+        item.innerHTML = `
+          <img class="saved-image-thumb" src="${img.thumbnail}" alt="${img.name}">
+          <div class="saved-image-info">
+            <div class="saved-image-name">${img.name}</div>
+            <div class="saved-image-meta">${dateStr} &bull; ${annotationCount} annotations, ${markerCount} markers</div>
+          </div>
+          <button class="saved-image-delete" title="Delete">&times;</button>
+        `;
+
+        // Click to load
+        item.addEventListener('click', async (e) => {
+          if (e.target.classList.contains('saved-image-delete')) return;
+          await loadSavedImage(img.id);
+          savedImagesModal.style.display = 'none';
+        });
+
+        // Delete button
+        item.querySelector('.saved-image-delete').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (confirm('Delete this saved image?')) {
+            await deleteSavedImage(img.id);
+            showSavedImagesModal(); // Refresh list
+          }
+        });
+
+        savedImagesList.appendChild(item);
+      });
+    } catch (err) {
+      console.error('Failed to load saved images:', err);
+      savedImagesList.innerHTML = '<p class="no-entries">Failed to load saved images.</p>';
+    }
+  }
+
+  async function loadSavedImage(id) {
+    try {
+      const saved = await getSavedImage(id);
+      if (!saved) return;
+
+      // Create image from data URL
+      const img = await new Promise((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = reject;
+        i.src = saved.imageDataUrl;
+      });
+
+      // Set up state
+      image = img;
+      markers = saved.markers || [];
+      colorMap = saved.colorMap || [];
+      annotations = saved.annotations || [];
+      selectedId = null;
+      selectedAnnotationId = null;
+      nextMarkerId = markers.length > 0 ? Math.max(...markers.map(m => m.id)) + 1 : 1;
+      nextColorId = colorMap.length > 0 ? Math.max(...colorMap.map(c => c.id)) + 1 : 1;
+      nextAnnotationId = annotations.length > 0 ? Math.max(...annotations.map(a => a.id)) + 1 : 1;
+      imageData = null;
+      cropRect = null;
+      exitAnnotateMode();
+
+      uploadArea.style.display = 'none';
+      viewerContainer.style.display = 'flex';
+      drawImage();
+      fitView();
+      renderMarkers();
+      renderColorEntries();
+      clearHighlight();
+      hideCropSelection();
+      canvas.dataset.filename = saved.name;
+
+    } catch (err) {
+      console.error('Failed to load saved image:', err);
+      alert('Failed to load saved image.');
+    }
+  }
+
+  // Close saved images modal
+  if (savedImagesModalClose) {
+    savedImagesModalClose.addEventListener('click', () => {
+      savedImagesModal.style.display = 'none';
+    });
+  }
+
   // ---- Keyboard ----
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
@@ -1560,6 +1839,13 @@
       }
       if (debugModal.style.display === 'flex') {
         debugModalCancel.click();
+      }
+      if (annotationModal && annotationModal.style.display === 'flex') {
+        annotationModal.style.display = 'none';
+        pendingAnnotationCoords = null;
+      }
+      if (savedImagesModal && savedImagesModal.style.display === 'flex') {
+        savedImagesModal.style.display = 'none';
       }
     }
   });

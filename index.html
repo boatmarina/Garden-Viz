@@ -25,6 +25,7 @@
         <p class="hint">Supports PNG, JPG, PDF</p>
         <input type="file" id="fileInput" accept="image/*,.pdf,application/pdf" hidden>
       </div>
+      <button class="btn-load-saved" id="btnLoadSaved">Load Saved Image</button>
     </div>
 
     <!-- Step 2: Viewer -->
@@ -40,6 +41,7 @@
         <button id="btnToggleView" title="Toggle between map and plant list view">Plant List</button>
         <span class="separator"></span>
         <button id="btnAnnotate" title="Click to place plant labels on the image">Annotate</button>
+        <button id="btnSaveImage" title="Save this image for future sessions">Save Image</button>
         <span class="separator"></span>
         <button id="btnDebugMode" title="Toggle debug mode for feedback collection">Debug Mode</button>
         <button id="btnExportDebug" title="Export debug feedback data" style="display:none;">Export Feedback</button>
@@ -257,6 +259,35 @@
     <!-- Debug mode indicator -->
     <div class="debug-mode-banner" id="debugModeBanner" style="display:none;">
       Debug Mode: Click on markers to provide feedback. <button id="btnAddMissing">+ Add Missing Plant</button>
+    </div>
+
+    <!-- Annotation input modal -->
+    <div class="modal-backdrop" id="annotationModal" style="display:none;">
+      <div class="modal annotation-modal">
+        <h3>Add Plant Annotation</h3>
+        <div class="field">
+          <label>Plant Name</label>
+          <input type="text" id="annotationNameInput" list="annotationSuggestions" placeholder="Type or select a plant name..." autocomplete="off">
+          <datalist id="annotationSuggestions"></datalist>
+        </div>
+        <div class="modal-buttons">
+          <button class="btn-cancel" id="annotationModalCancel">Cancel</button>
+          <button class="btn-save" id="annotationModalSave">Add Annotation</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Saved images modal -->
+    <div class="modal-backdrop" id="savedImagesModal" style="display:none;">
+      <div class="modal saved-images-modal">
+        <h3>Saved Images</h3>
+        <div class="saved-images-list" id="savedImagesList">
+          <p class="no-entries">No saved images yet.</p>
+        </div>
+        <div class="modal-buttons">
+          <button class="btn-cancel" id="savedImagesModalClose">Close</button>
+        </div>
+      </div>
     </div>
   </main>
 
