@@ -439,8 +439,10 @@
     };
 
     annotations.push(annotation);
+    console.log('Created annotation:', annotation, 'Total:', annotations.length);
     pendingAnnotationCoords = null;
     autoSave();
+    console.log('Calling renderMarkers, annotateMode:', annotateMode);
     renderMarkers();
     selectAnnotation(annotation.id);
   }
@@ -991,12 +993,14 @@
     }
 
     // Always render annotations
+    console.log('Rendering', annotations.length, 'annotations. Overlay:', overlay, 'Overlay parent:', overlay?.parentElement);
     annotations.forEach(a => {
       const el = document.createElement('div');
       el.className = 'annotation' + (a.id === selectedAnnotationId ? ' selected' : '');
       el.style.left = a.x + 'px';
       el.style.top = a.y + 'px';
       el.dataset.id = a.id;
+      console.log('  Annotation', a.id, 'at', a.x.toFixed(0), a.y.toFixed(0), 'element:', el);
 
       const label = document.createElement('span');
       label.className = 'annotation-label';
@@ -1009,6 +1013,7 @@
       });
       overlay.appendChild(el);
     });
+    console.log('Overlay children after render:', overlay.children.length);
 
     updateMarkerScale();
   }
