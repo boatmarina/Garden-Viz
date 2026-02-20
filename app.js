@@ -60,7 +60,9 @@
   let annotateMode = false;
   let selectedAnnotationId = null;
   let pendingAnnotationCoords = null;
+  let importedPlants = []; // User-imported plant list for annotations
   const btnAnnotate = document.getElementById('btnAnnotate');
+  const btnImportPlants = document.getElementById('btnImportPlants');
   const btnSaveImage = document.getElementById('btnSaveImage');
   const btnLoadSaved = document.getElementById('btnLoadSaved');
 
@@ -70,6 +72,13 @@
   const annotationSuggestions = document.getElementById('annotationSuggestions');
   const annotationModalCancel = document.getElementById('annotationModalCancel');
   const annotationModalSave = document.getElementById('annotationModalSave');
+
+  // Import plants modal
+  const importPlantsModal = document.getElementById('importPlantsModal');
+  const importPlantsText = document.getElementById('importPlantsText');
+  const importPlantsCount = document.getElementById('importPlantsCount');
+  const importPlantsCancel = document.getElementById('importPlantsCancel');
+  const importPlantsSave = document.getElementById('importPlantsSave');
 
   // Saved images modal
   const savedImagesModal = document.getElementById('savedImagesModal');
@@ -184,6 +193,7 @@
     markers = [];
     colorMap = [];
     annotations = [];
+    importedPlants = [];
     selectedId = null;
     selectedAnnotationId = null;
     nextMarkerId = 1;
@@ -216,6 +226,7 @@
         if (data.colorMap) { colorMap = data.colorMap; nextColorId = Math.max(...colorMap.map(c => c.id), 0) + 1; }
         if (data.markers) { markers = data.markers; nextMarkerId = Math.max(...markers.map(m => m.id), 0) + 1; }
         if (data.annotations) { annotations = data.annotations; nextAnnotationId = Math.max(...annotations.map(a => a.id), 0) + 1; }
+        if (data.importedPlants) { importedPlants = data.importedPlants; }
         renderMarkers();
         renderColorEntries();
       }
@@ -228,6 +239,7 @@
           if (d.colorMap) { colorMap = d.colorMap; nextColorId = Math.max(...colorMap.map(c => c.id), 0) + 1; }
           if (d.markers) { markers = d.markers; nextMarkerId = Math.max(...markers.map(m => m.id), 0) + 1; }
           if (d.annotations) { annotations = d.annotations; nextAnnotationId = Math.max(...annotations.map(a => a.id), 0) + 1; }
+          if (d.importedPlants) { importedPlants = d.importedPlants; }
           renderMarkers();
           renderColorEntries();
         } catch (__) {}
@@ -397,12 +409,26 @@
     // Store coordinates for when modal is confirmed
     pendingAnnotationCoords = { x: imgX, y: imgY };
 
-    // Populate dropdown with colorMap entries
+    // Populate dropdown - prioritize imported plants, then colorMap entries
     annotationSuggestions.innerHTML = '';
+
+    // Add imported plants first (if any)
+    if (importedPlants.length > 0) {
+      importedPlants.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        annotationSuggestions.appendChild(option);
+      });
+    }
+
+    // Add colorMap entries that aren't already in imported plants
     colorMap.forEach(entry => {
-      const option = document.createElement('option');
-      option.value = entry.name;
-      annotationSuggestions.appendChild(option);
+      const alreadyExists = importedPlants.some(p => p.toLowerCase() === entry.name.toLowerCase());
+      if (!alreadyExists) {
+        const option = document.createElement('option');
+        option.value = entry.name;
+        annotationSuggestions.appendChild(option);
+      }
     });
 
     // Clear and focus input
@@ -470,6 +496,50 @@
         annotationModal.style.display = 'none';
         pendingAnnotationCoords = null;
       }
+    });
+  }
+
+  // ---- Import Plants Modal Handlers ----
+  if (btnImportPlants) {
+    btnImportPlants.addEventListener('click', () => {
+      // Pre-populate with existing imported plants if any
+      if (importedPlants.length > 0) {
+        importPlantsText.value = importedPlants.join('\n');
+        importPlantsCount.textContent = importedPlants.length + ' plants';
+      } else {
+        importPlantsText.value = '';
+        importPlantsCount.textContent = '0 plants';
+      }
+      importPlantsModal.style.display = 'flex';
+      setTimeout(() => importPlantsText.focus(), 50);
+    });
+  }
+
+  if (importPlantsText) {
+    importPlantsText.addEventListener('input', () => {
+      const lines = importPlantsText.value.split('\n').filter(line => line.trim().length > 0);
+      importPlantsCount.textContent = lines.length + ' plant' + (lines.length !== 1 ? 's' : '');
+    });
+  }
+
+  if (importPlantsCancel) {
+    importPlantsCancel.addEventListener('click', () => {
+      importPlantsModal.style.display = 'none';
+    });
+  }
+
+  if (importPlantsSave) {
+    importPlantsSave.addEventListener('click', () => {
+      const lines = importPlantsText.value.split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+
+      importedPlants = lines;
+      importPlantsModal.style.display = 'none';
+      autoSave();
+
+      console.log('[Import Plants] Imported', importedPlants.length, 'plants');
+      alert(`Imported ${importedPlants.length} plants for annotations.`);
     });
   }
 
@@ -1172,7 +1242,7 @@
     const key = 'gardenViz_v' + CACHE_VERSION + '_' + name;
     openDB().then(db => {
       const tx = db.transaction(AUTOSAVE_STORE, 'readwrite');
-      tx.objectStore(AUTOSAVE_STORE).put({ key, colorMap, markers, annotations });
+      tx.objectStore(AUTOSAVE_STORE).put({ key, colorMap, markers, annotations, importedPlants });
     }).catch(err => {
       console.warn('Auto-save failed:', err);
     });
@@ -1700,6 +1770,7 @@
         colorMap: colorMap,
         markers: markers,
         annotations: annotations,
+        importedPlants: importedPlants,
         savedAt: Date.now()
       };
       const request = store.add(record);
@@ -1851,6 +1922,7 @@
       markers = saved.markers || [];
       colorMap = saved.colorMap || [];
       annotations = saved.annotations || [];
+      importedPlants = saved.importedPlants || [];
       selectedId = null;
       selectedAnnotationId = null;
       nextMarkerId = markers.length > 0 ? Math.max(...markers.map(m => m.id)) + 1 : 1;
@@ -1901,6 +1973,9 @@
       }
       if (savedImagesModal && savedImagesModal.style.display === 'flex') {
         savedImagesModal.style.display = 'none';
+      }
+      if (importPlantsModal && importPlantsModal.style.display === 'flex') {
+        importPlantsModal.style.display = 'none';
       }
     }
   });
