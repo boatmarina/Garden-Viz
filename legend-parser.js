@@ -117,6 +117,8 @@ const LegendParser = (() => {
     });
 
     // Assign words to swatches - each word can only be assigned once
+    let swatchesWithNoWords = 0;
+    let namesRejected = 0;
     for (const { swatch, swatchRight, rightBoundary, swatchCenterY, swatchHeight } of swatchTextBoundaries) {
       // Find words that belong to this swatch
       const swatchWords = [];
@@ -143,7 +145,11 @@ const LegendParser = (() => {
         swatchWords.push({ word, index: wi });
       }
 
-      if (swatchWords.length === 0) continue;
+      if (swatchWords.length === 0) {
+        swatchesWithNoWords++;
+        console.log(`[LegendParser] Swatch at (${swatch.bounds.minX}, ${swatch.bounds.minY}) has NO associated words`);
+        continue;
+      }
 
       // Sort words by x position to form the text
       swatchWords.sort((a, b) => a.word.bbox.x0 - b.word.bbox.x0);
@@ -167,13 +173,15 @@ const LegendParser = (() => {
       }
 
       // Combine words into name
-      let name = filteredWords.map(w => w.word.text).join(' ').trim();
-      name = cleanOcrText(name);
+      let rawName = filteredWords.map(w => w.word.text).join(' ').trim();
+      let name = cleanOcrText(rawName);
 
       const avgConfidence = filteredWords.reduce((s, w) => s + w.word.confidence, 0) / filteredWords.length;
 
       // Skip entries with invalid names
       if (!isValidPlantName(name)) {
+        namesRejected++;
+        console.log(`[LegendParser] REJECTED name: "${name}" (raw: "${rawName}")`);
         continue;
       }
 
@@ -197,11 +205,18 @@ const LegendParser = (() => {
       entries.push(entry);
     }
 
+    // Summary stats
+    console.log(`[LegendParser] === SUMMARY ===`);
+    console.log(`  Swatches detected: ${swatches.length}`);
+    console.log(`  Swatches with no text: ${swatchesWithNoWords}`);
+    console.log(`  Names rejected as invalid: ${namesRejected}`);
+    console.log(`  Valid entries: ${entries.length}`);
+
     // Remove duplicate entries (same name with similar colors)
     const deduped = deduplicateEntries(entries);
 
     // Debug: Log final entries
-    console.log(`[LegendParser] Final entries (${deduped.length} after dedup from ${entries.length}):`);
+    console.log(`  After dedup: ${deduped.length}`);
     deduped.forEach((e, i) => {
       console.log(`  [${i}] "${e.name}" - rgb(${e.color.join(',')})`);
     });
