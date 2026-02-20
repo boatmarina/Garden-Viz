@@ -913,9 +913,24 @@ function lookupByGenus(name) {
 
   const cleanName = name.trim();
 
-  // Try to extract genus from the name
-  // Could be "Ilex crenata 'Northern Beauty'" or "Japanese Holly" or "Carex elata - Bowles Golden"
-  const words = cleanName.split(/[\s\-']+/).filter(w => w.length > 0);
+  // Extract the botanical part before any cultivar name in quotes
+  // e.g., "Ilex crenata 'Northern Beauty'" → "Ilex crenata"
+  // e.g., "Rosa 'Knock Out'" → "Rosa"
+  let botanicalPart = cleanName;
+  const quoteIndex = cleanName.indexOf("'");
+  if (quoteIndex > 0) {
+    botanicalPart = cleanName.substring(0, quoteIndex).trim();
+  }
+
+  // Also handle dashes that might separate botanical from common name
+  // e.g., "Carex elata - Bowles Golden" → "Carex elata"
+  const dashIndex = botanicalPart.indexOf(' - ');
+  if (dashIndex > 0) {
+    botanicalPart = botanicalPart.substring(0, dashIndex).trim();
+  }
+
+  // Try to extract genus from the botanical part
+  const words = botanicalPart.split(/\s+/).filter(w => w.length > 0);
 
   // Try each word as a potential genus (botanical names usually start with genus)
   for (const word of words) {
@@ -925,7 +940,7 @@ function lookupByGenus(name) {
       // Return a synthetic entry with the original name and genus-based info
       return {
         common: cleanName,
-        botanical: cleanName,
+        botanical: botanicalPart,
         type: info.type || '',
         size: info.size || '',
         bloom: info.bloom || '',
