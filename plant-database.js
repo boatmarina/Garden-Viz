@@ -654,44 +654,52 @@ function lookupPlant(name) {
   // 2. Exact match on original name
   if (PLANT_DB[originalKey]) return PLANT_DB[originalKey];
 
-  // 3. Check if any DB key is contained in the input or vice versa
+  // 3. Check if input contains a DB key AND the DB key is substantial (>60% of input length)
+  // This prevents "ilex" from matching "ilex crenata 'northern beauty'"
   for (const k of Object.keys(PLANT_DB)) {
-    if (k.includes(key) || key.includes(k)) return PLANT_DB[k];
-    if (k.includes(originalKey) || originalKey.includes(k)) return PLANT_DB[k];
-  }
-
-  // 4. Word-based matching: check if any significant word matches
-  const words = key.split(/\s+/).filter(w => w.length > 2);
-  for (const word of words) {
-    // Skip common non-plant words
-    if (['the', 'and', 'for', 'with', 'new'].includes(word)) continue;
-
-    // Check for word match in DB keys
-    for (const k of Object.keys(PLANT_DB)) {
-      const dbWords = k.split(/\s+/);
-      if (dbWords.includes(word)) return PLANT_DB[k];
-      // Also check if word is a substantial part of a DB key
-      if (word.length >= 4 && k.includes(word)) return PLANT_DB[k];
+    if (key.includes(k) && k.length >= key.length * 0.6) {
+      return PLANT_DB[k];
     }
   }
 
-  // 5. Check botanical names
+  // 4. Check botanical names - require genus AND species match for specificity
   for (const k of Object.keys(PLANT_DB)) {
     const entry = PLANT_DB[k];
     if (entry.botanical) {
       const botanical = entry.botanical.toLowerCase();
-      if (botanical.includes(key) || key.includes(botanical.split(' ')[0])) {
+      // Exact botanical match
+      if (key === botanical || originalKey === botanical) {
         return entry;
       }
-      // Check genus (first word of botanical name)
-      const genus = botanical.split(' ')[0];
-      if (genus.length > 3 && key.includes(genus)) {
+      // Check if input starts with the full botanical name (allows for cultivar suffix)
+      if (key.startsWith(botanical) || originalKey.startsWith(botanical)) {
         return entry;
+      }
+      // Check genus + species (first two words)
+      const botanicalParts = botanical.split(' ');
+      if (botanicalParts.length >= 2) {
+        const genusSpecies = botanicalParts.slice(0, 2).join(' ');
+        if (key.includes(genusSpecies) || originalKey.includes(genusSpecies)) {
+          return entry;
+        }
       }
     }
   }
 
-  // 6. Fuzzy match: check for similar spellings (simple Levenshtein-ish)
+  // 5. Word-based matching - require first word (likely genus) to match exactly
+  const inputWords = key.split(/\s+/).filter(w => w.length > 2);
+  if (inputWords.length > 0) {
+    const firstWord = inputWords[0];
+    for (const k of Object.keys(PLANT_DB)) {
+      const dbWords = k.split(/\s+/);
+      // First word must match and DB key should have multiple words (not just genus)
+      if (dbWords[0] === firstWord && dbWords.length > 1) {
+        return PLANT_DB[k];
+      }
+    }
+  }
+
+  // 6. Fuzzy match: check for similar spellings (only for similar-length strings)
   for (const k of Object.keys(PLANT_DB)) {
     if (similarEnough(key, k)) return PLANT_DB[k];
   }

@@ -41,6 +41,7 @@
         <button id="btnToggleView" title="Toggle between map and plant list view">Plant List</button>
         <span class="separator"></span>
         <button id="btnAnnotate" title="Click to place plant labels on the image">Annotate</button>
+        <button id="btnImportPlants" title="Import a list of plant names for annotations">Import Plants</button>
         <button id="btnSaveImage" title="Save this image for future sessions">Save Image</button>
         <span class="separator"></span>
         <button id="btnDebugMode" title="Toggle debug mode for feedback collection">Debug Mode</button>
@@ -273,6 +274,24 @@
         <div class="modal-buttons">
           <button class="btn-cancel" id="annotationModalCancel">Cancel</button>
           <button class="btn-save" id="annotationModalSave">Add Annotation</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import plants modal -->
+    <div class="modal-backdrop" id="importPlantsModal" style="display:none;">
+      <div class="modal import-plants-modal">
+        <h3>Import Plant List</h3>
+        <p class="hint">Paste your plant names below, one per line:</p>
+        <textarea id="importPlantsText" rows="12" placeholder="Carex elata 'Bowles Golden'
+Rhododendron 'Evening Glow'
+Hebe
+Coreopsis
+..."></textarea>
+        <div class="import-plants-count" id="importPlantsCount">0 plants</div>
+        <div class="modal-buttons">
+          <button class="btn-cancel" id="importPlantsCancel">Cancel</button>
+          <button class="btn-save" id="importPlantsSave">Import</button>
         </div>
       </div>
     </div>
