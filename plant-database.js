@@ -631,6 +631,199 @@ const PLANT_DB = {
 };
 
 /**
+ * Genus-based plant info for when exact matches aren't found.
+ * Provides basic info based on the genus (first word of botanical name).
+ */
+const GENUS_INFO = {
+  // Trees
+  "acer": { type: "deciduous-tree", sun: "part-sun", water: "moderate", notes: "Maple family" },
+  "quercus": { type: "deciduous-tree", sun: "full-sun", water: "moderate", notes: "Oak family" },
+  "betula": { type: "deciduous-tree", sun: "full-sun", water: "moderate", notes: "Birch family" },
+  "cornus": { type: "deciduous-tree", sun: "part-sun", water: "moderate", notes: "Dogwood family" },
+  "prunus": { type: "deciduous-tree", sun: "full-sun", water: "moderate", bloom: "Spring", notes: "Cherry/Plum family" },
+  "malus": { type: "deciduous-tree", sun: "full-sun", water: "moderate", bloom: "Spring", notes: "Apple/Crabapple family" },
+  "magnolia": { type: "deciduous-tree", sun: "full-sun", water: "moderate", bloom: "Spring", notes: "Magnolia family" },
+  "cercis": { type: "deciduous-tree", sun: "full-sun", water: "moderate", bloom: "Early Spring", notes: "Redbud family" },
+  "lagerstroemia": { type: "deciduous-tree", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Crepe myrtle family" },
+  "picea": { type: "evergreen-tree", sun: "full-sun", water: "moderate", notes: "Spruce family" },
+  "pinus": { type: "evergreen-tree", sun: "full-sun", water: "low", notes: "Pine family" },
+  "thuja": { type: "evergreen-tree", sun: "full-sun", water: "moderate", notes: "Arborvitae family" },
+  "tsuga": { type: "evergreen-tree", sun: "part-shade", water: "moderate", notes: "Hemlock family" },
+  "abies": { type: "evergreen-tree", sun: "full-sun", water: "moderate", notes: "Fir family" },
+  "cedrus": { type: "evergreen-tree", sun: "full-sun", water: "low", notes: "Cedar family" },
+  "cryptomeria": { type: "evergreen-tree", sun: "full-sun", water: "moderate", notes: "Japanese cedar" },
+  "metasequoia": { type: "deciduous-tree", sun: "full-sun", water: "moderate", notes: "Dawn redwood" },
+  "ginkgo": { type: "deciduous-tree", sun: "full-sun", water: "moderate", notes: "Ginkgo - living fossil" },
+  "amelanchier": { type: "deciduous-tree", sun: "part-sun", water: "moderate", bloom: "Spring", notes: "Serviceberry family" },
+  "carpinus": { type: "deciduous-tree", sun: "part-sun", water: "moderate", notes: "Hornbeam family" },
+  "fagus": { type: "deciduous-tree", sun: "part-sun", water: "moderate", notes: "Beech family" },
+  "liquidambar": { type: "deciduous-tree", sun: "full-sun", water: "moderate", notes: "Sweetgum" },
+  "nyssa": { type: "deciduous-tree", sun: "full-sun", water: "high", notes: "Tupelo/Black gum" },
+  "liriodendron": { type: "deciduous-tree", sun: "full-sun", water: "moderate", notes: "Tulip tree" },
+  "styrax": { type: "deciduous-tree", sun: "part-sun", water: "moderate", bloom: "Spring", notes: "Snowbell family" },
+  "halesia": { type: "deciduous-tree", sun: "part-sun", water: "moderate", bloom: "Spring", notes: "Silverbell family" },
+  "oxydendrum": { type: "deciduous-tree", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Sourwood" },
+  "chionanthus": { type: "deciduous-tree", sun: "full-sun", water: "moderate", bloom: "Spring", notes: "Fringetree" },
+  "cladrastis": { type: "deciduous-tree", sun: "full-sun", water: "moderate", bloom: "Spring", notes: "Yellowwood" },
+  "zelkova": { type: "deciduous-tree", sun: "full-sun", water: "moderate", notes: "Elm relative" },
+  "parrotia": { type: "deciduous-tree", sun: "full-sun", water: "moderate", notes: "Persian ironwood" },
+
+  // Evergreen shrubs
+  "ilex": { type: "evergreen-shrub", sun: "part-sun", water: "moderate", notes: "Holly family" },
+  "buxus": { type: "evergreen-shrub", sun: "part-sun", water: "moderate", notes: "Boxwood family" },
+  "rhododendron": { type: "evergreen-shrub", sun: "part-shade", water: "moderate", bloom: "Spring", notes: "Rhododendron/Azalea family" },
+  "camellia": { type: "evergreen-shrub", sun: "part-shade", water: "moderate", bloom: "Winter-Spring", notes: "Camellia family" },
+  "pieris": { type: "evergreen-shrub", sun: "part-shade", water: "moderate", bloom: "Early Spring", notes: "Andromeda family" },
+  "leucothoe": { type: "evergreen-shrub", sun: "part-shade", water: "moderate", notes: "Drooping leucothoe" },
+  "kalmia": { type: "evergreen-shrub", sun: "part-shade", water: "moderate", bloom: "Late Spring", notes: "Mountain laurel" },
+  "prunus": { type: "evergreen-shrub", sun: "full-sun", water: "moderate", notes: "Cherry laurel (evergreen varieties)" },
+  "aucuba": { type: "evergreen-shrub", sun: "full-shade", water: "moderate", notes: "Gold dust plant" },
+  "nandina": { type: "evergreen-shrub", sun: "part-sun", water: "moderate", notes: "Heavenly bamboo" },
+  "osmanthus": { type: "evergreen-shrub", sun: "part-sun", water: "moderate", bloom: "Fall", notes: "Fragrant olive" },
+  "ligustrum": { type: "evergreen-shrub", sun: "full-sun", water: "moderate", notes: "Privet family" },
+  "euonymus": { type: "evergreen-shrub", sun: "full-sun", water: "moderate", notes: "Euonymus family" },
+  "skimmia": { type: "evergreen-shrub", sun: "part-shade", water: "moderate", notes: "Skimmia" },
+  "sarcococca": { type: "evergreen-shrub", sun: "full-shade", water: "moderate", bloom: "Winter", notes: "Sweet box" },
+  "cephalotaxus": { type: "evergreen-shrub", sun: "part-shade", water: "moderate", notes: "Plum yew" },
+  "taxus": { type: "evergreen-shrub", sun: "part-shade", water: "moderate", notes: "Yew family" },
+  "juniperus": { type: "evergreen-shrub", sun: "full-sun", water: "low", notes: "Juniper family" },
+  "chamaecyparis": { type: "evergreen-shrub", sun: "full-sun", water: "moderate", notes: "False cypress" },
+  "microbiota": { type: "evergreen-shrub", sun: "part-shade", water: "moderate", notes: "Russian cypress" },
+  "abelia": { type: "evergreen-shrub", sun: "full-sun", water: "moderate", bloom: "Summer-Fall", notes: "Abelia family" },
+  "loropetalum": { type: "evergreen-shrub", sun: "part-sun", water: "moderate", bloom: "Spring", notes: "Chinese fringe flower" },
+  "illicium": { type: "evergreen-shrub", sun: "part-shade", water: "moderate", notes: "Anise tree" },
+  "cleyera": { type: "evergreen-shrub", sun: "part-shade", water: "moderate", notes: "Japanese cleyera" },
+  "ternstroemia": { type: "evergreen-shrub", sun: "part-shade", water: "moderate", notes: "Cleyera relative" },
+  "gardenia": { type: "evergreen-shrub", sun: "part-sun", water: "moderate", bloom: "Summer", notes: "Fragrant gardenia" },
+  "distylium": { type: "evergreen-shrub", sun: "part-sun", water: "moderate", notes: "Distylium" },
+
+  // Deciduous shrubs
+  "hydrangea": { type: "deciduous-shrub", sun: "part-sun", water: "high", bloom: "Summer", notes: "Hydrangea family" },
+  "viburnum": { type: "deciduous-shrub", sun: "part-sun", water: "moderate", bloom: "Spring", notes: "Viburnum family" },
+  "spiraea": { type: "deciduous-shrub", sun: "full-sun", water: "moderate", bloom: "Spring-Summer", notes: "Spirea family" },
+  "weigela": { type: "deciduous-shrub", sun: "full-sun", water: "moderate", bloom: "Late Spring", notes: "Weigela family" },
+  "forsythia": { type: "deciduous-shrub", sun: "full-sun", water: "moderate", bloom: "Early Spring", notes: "Forsythia" },
+  "syringa": { type: "deciduous-shrub", sun: "full-sun", water: "moderate", bloom: "Spring", notes: "Lilac family" },
+  "philadelphus": { type: "deciduous-shrub", sun: "full-sun", water: "moderate", bloom: "Late Spring", notes: "Mock orange" },
+  "deutzia": { type: "deciduous-shrub", sun: "full-sun", water: "moderate", bloom: "Spring", notes: "Deutzia family" },
+  "fothergilla": { type: "deciduous-shrub", sun: "part-sun", water: "moderate", bloom: "Spring", notes: "Fothergilla - great fall color" },
+  "itea": { type: "deciduous-shrub", sun: "part-sun", water: "high", bloom: "Summer", notes: "Virginia sweetspire" },
+  "clethra": { type: "deciduous-shrub", sun: "part-shade", water: "high", bloom: "Summer", notes: "Summersweet" },
+  "callicarpa": { type: "deciduous-shrub", sun: "full-sun", water: "moderate", notes: "Beautyberry - purple berries" },
+  "berberis": { type: "deciduous-shrub", sun: "full-sun", water: "low", notes: "Barberry family" },
+  "cotinus": { type: "deciduous-shrub", sun: "full-sun", water: "low", bloom: "Summer", notes: "Smoke bush" },
+  "hibiscus": { type: "deciduous-shrub", sun: "full-sun", water: "moderate", bloom: "Summer-Fall", notes: "Rose of Sharon" },
+  "hamamelis": { type: "deciduous-shrub", sun: "part-sun", water: "moderate", bloom: "Winter-Spring", notes: "Witch hazel" },
+  "corylopsis": { type: "deciduous-shrub", sun: "part-shade", water: "moderate", bloom: "Early Spring", notes: "Winter hazel" },
+  "edgeworthia": { type: "deciduous-shrub", sun: "part-shade", water: "moderate", bloom: "Winter", notes: "Paperbush" },
+  "calycanthus": { type: "deciduous-shrub", sun: "part-sun", water: "moderate", bloom: "Late Spring", notes: "Sweetshrub" },
+  "hypericum": { type: "deciduous-shrub", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "St. John's wort" },
+  "physocarpus": { type: "deciduous-shrub", sun: "full-sun", water: "moderate", bloom: "Spring", notes: "Ninebark" },
+  "aronia": { type: "deciduous-shrub", sun: "full-sun", water: "moderate", bloom: "Spring", notes: "Chokeberry" },
+  "sambucus": { type: "deciduous-shrub", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Elderberry" },
+  "lindera": { type: "deciduous-shrub", sun: "part-sun", water: "moderate", bloom: "Early Spring", notes: "Spicebush" },
+  "myrica": { type: "deciduous-shrub", sun: "full-sun", water: "moderate", notes: "Bayberry" },
+  "rosa": { type: "deciduous-shrub", sun: "full-sun", water: "moderate", bloom: "Spring-Fall", notes: "Rose family" },
+
+  // Perennials
+  "hosta": { type: "perennial", sun: "part-shade", water: "moderate", bloom: "Summer", notes: "Shade-loving foliage plant" },
+  "heuchera": { type: "perennial", sun: "part-shade", water: "moderate", bloom: "Summer", notes: "Coral bells - colorful foliage" },
+  "astilbe": { type: "perennial", sun: "part-shade", water: "high", bloom: "Summer", notes: "Feathery plumes for shade" },
+  "helleborus": { type: "perennial", sun: "part-shade", water: "moderate", bloom: "Late Winter-Spring", notes: "Lenten rose" },
+  "epimedium": { type: "perennial", sun: "part-shade", water: "moderate", bloom: "Spring", notes: "Barrenwort - great groundcover" },
+  "brunnera": { type: "perennial", sun: "part-shade", water: "moderate", bloom: "Spring", notes: "Siberian bugloss" },
+  "pulmonaria": { type: "perennial", sun: "part-shade", water: "moderate", bloom: "Spring", notes: "Lungwort" },
+  "tiarella": { type: "perennial", sun: "part-shade", water: "moderate", bloom: "Spring", notes: "Foamflower" },
+  "heucherella": { type: "perennial", sun: "part-shade", water: "moderate", bloom: "Spring", notes: "Heuchera x Tiarella hybrid" },
+  "polygonatum": { type: "perennial", sun: "part-shade", water: "moderate", bloom: "Spring", notes: "Solomon's seal" },
+  "disporum": { type: "perennial", sun: "part-shade", water: "moderate", bloom: "Spring", notes: "Fairy bells" },
+  "anemone": { type: "perennial", sun: "part-sun", water: "moderate", bloom: "Fall", notes: "Japanese anemone" },
+  "echinacea": { type: "perennial", sun: "full-sun", water: "low", bloom: "Summer", notes: "Coneflower" },
+  "rudbeckia": { type: "perennial", sun: "full-sun", water: "moderate", bloom: "Summer-Fall", notes: "Black-eyed Susan" },
+  "salvia": { type: "perennial", sun: "full-sun", water: "low", bloom: "Summer", notes: "Sage family" },
+  "nepeta": { type: "perennial", sun: "full-sun", water: "low", bloom: "Spring-Fall", notes: "Catmint" },
+  "lavandula": { type: "perennial", sun: "full-sun", water: "low", bloom: "Summer", notes: "Lavender" },
+  "perovskia": { type: "perennial", sun: "full-sun", water: "low", bloom: "Summer-Fall", notes: "Russian sage" },
+  "sedum": { type: "perennial", sun: "full-sun", water: "low", bloom: "Summer-Fall", notes: "Stonecrop" },
+  "geranium": { type: "perennial", sun: "part-sun", water: "moderate", bloom: "Spring-Summer", notes: "Hardy geranium (cranesbill)" },
+  "phlox": { type: "perennial", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Phlox family" },
+  "leucanthemum": { type: "perennial", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Shasta daisy" },
+  "coreopsis": { type: "perennial", sun: "full-sun", water: "low", bloom: "Summer", notes: "Tickseed" },
+  "gaillardia": { type: "perennial", sun: "full-sun", water: "low", bloom: "Summer", notes: "Blanket flower" },
+  "agastache": { type: "perennial", sun: "full-sun", water: "low", bloom: "Summer", notes: "Hyssop - attracts pollinators" },
+  "monarda": { type: "perennial", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Bee balm" },
+  "achillea": { type: "perennial", sun: "full-sun", water: "low", bloom: "Summer", notes: "Yarrow" },
+  "paeonia": { type: "perennial", sun: "full-sun", water: "moderate", bloom: "Late Spring", notes: "Peony" },
+  "iris": { type: "perennial", sun: "full-sun", water: "moderate", bloom: "Spring", notes: "Iris family" },
+  "hemerocallis": { type: "perennial", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Daylily" },
+  "agapanthus": { type: "perennial", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Lily of the Nile" },
+  "liatris": { type: "perennial", sun: "full-sun", water: "low", bloom: "Summer", notes: "Blazing star" },
+  "veronica": { type: "perennial", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Speedwell" },
+  "amsonia": { type: "perennial", sun: "full-sun", water: "moderate", bloom: "Spring", notes: "Blue star - great fall color" },
+  "baptisia": { type: "perennial", sun: "full-sun", water: "low", bloom: "Spring", notes: "False indigo" },
+  "euphorbia": { type: "perennial", sun: "full-sun", water: "low", bloom: "Spring", notes: "Spurge family" },
+  "dianthus": { type: "perennial", sun: "full-sun", water: "low", bloom: "Spring-Summer", notes: "Pinks" },
+  "campanula": { type: "perennial", sun: "part-sun", water: "moderate", bloom: "Summer", notes: "Bellflower" },
+  "digitalis": { type: "perennial", sun: "part-sun", water: "moderate", bloom: "Early Summer", notes: "Foxglove" },
+  "aquilegia": { type: "perennial", sun: "part-shade", water: "moderate", bloom: "Spring", notes: "Columbine" },
+  "delphinium": { type: "perennial", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Larkspur" },
+  "kniphofia": { type: "perennial", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Red hot poker" },
+  "crocosmia": { type: "perennial", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Montbretia" },
+  "alchemilla": { type: "perennial", sun: "part-sun", water: "moderate", bloom: "Summer", notes: "Lady's mantle" },
+  "stachys": { type: "perennial", sun: "full-sun", water: "low", bloom: "Summer", notes: "Lamb's ear" },
+  "artemisia": { type: "perennial", sun: "full-sun", water: "low", notes: "Silvery foliage plant" },
+  "ajuga": { type: "ground-cover", sun: "part-shade", water: "moderate", bloom: "Spring", notes: "Bugleweed groundcover" },
+  "vinca": { type: "ground-cover", sun: "part-shade", water: "moderate", bloom: "Spring", notes: "Periwinkle groundcover" },
+  "pachysandra": { type: "ground-cover", sun: "full-shade", water: "moderate", notes: "Japanese spurge groundcover" },
+  "liriope": { type: "ground-cover", sun: "part-shade", water: "moderate", bloom: "Late Summer", notes: "Lilyturf" },
+  "ophiopogon": { type: "ground-cover", sun: "part-shade", water: "moderate", notes: "Mondo grass" },
+  "hakonechloa": { type: "ornamental-grass", sun: "part-shade", water: "moderate", notes: "Japanese forest grass" },
+
+  // Ornamental grasses
+  "miscanthus": { type: "ornamental-grass", sun: "full-sun", water: "moderate", bloom: "Late Summer", notes: "Maiden grass" },
+  "panicum": { type: "ornamental-grass", sun: "full-sun", water: "moderate", bloom: "Fall", notes: "Switch grass" },
+  "pennisetum": { type: "ornamental-grass", sun: "full-sun", water: "low", bloom: "Summer", notes: "Fountain grass" },
+  "calamagrostis": { type: "ornamental-grass", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Feather reed grass" },
+  "festuca": { type: "ornamental-grass", sun: "full-sun", water: "low", notes: "Blue fescue" },
+  "carex": { type: "ornamental-grass", sun: "part-shade", water: "moderate", notes: "Sedge family" },
+  "nassella": { type: "ornamental-grass", sun: "full-sun", water: "low", notes: "Mexican feather grass" },
+  "schizachyrium": { type: "ornamental-grass", sun: "full-sun", water: "low", bloom: "Fall", notes: "Little bluestem" },
+  "muhlenbergia": { type: "ornamental-grass", sun: "full-sun", water: "low", bloom: "Fall", notes: "Muhly grass" },
+  "sporobolus": { type: "ornamental-grass", sun: "full-sun", water: "low", bloom: "Fall", notes: "Prairie dropseed" },
+  "andropogon": { type: "ornamental-grass", sun: "full-sun", water: "low", bloom: "Fall", notes: "Big bluestem" },
+  "chasmanthium": { type: "ornamental-grass", sun: "part-shade", water: "moderate", bloom: "Summer", notes: "Northern sea oats" },
+  "sesleria": { type: "ornamental-grass", sun: "part-sun", water: "moderate", notes: "Moor grass" },
+  "deschampsia": { type: "ornamental-grass", sun: "part-sun", water: "moderate", bloom: "Summer", notes: "Tufted hair grass" },
+  "molinia": { type: "ornamental-grass", sun: "full-sun", water: "moderate", bloom: "Fall", notes: "Moor grass" },
+  "juncus": { type: "ornamental-grass", sun: "full-sun", water: "high", notes: "Rush family" },
+  "acorus": { type: "ornamental-grass", sun: "full-sun", water: "high", notes: "Sweet flag" },
+
+  // Ferns
+  "athyrium": { type: "fern", sun: "part-shade", water: "moderate", notes: "Lady fern" },
+  "dryopteris": { type: "fern", sun: "part-shade", water: "moderate", notes: "Wood fern" },
+  "polystichum": { type: "fern", sun: "part-shade", water: "moderate", notes: "Christmas/Shield fern" },
+  "osmunda": { type: "fern", sun: "part-shade", water: "high", notes: "Royal fern" },
+  "matteuccia": { type: "fern", sun: "part-shade", water: "high", notes: "Ostrich fern" },
+  "adiantum": { type: "fern", sun: "part-shade", water: "moderate", notes: "Maidenhair fern" },
+  "cyrtomium": { type: "fern", sun: "part-shade", water: "moderate", notes: "Holly fern" },
+
+  // Vines
+  "clematis": { type: "vine", sun: "full-sun", water: "moderate", bloom: "Spring-Fall", notes: "Flowering vine" },
+  "wisteria": { type: "vine", sun: "full-sun", water: "moderate", bloom: "Spring", notes: "Cascading flower clusters" },
+  "lonicera": { type: "vine", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Honeysuckle" },
+  "hydrangea": { type: "vine", sun: "part-shade", water: "moderate", bloom: "Summer", notes: "Climbing hydrangea" },
+  "schizophragma": { type: "vine", sun: "part-shade", water: "moderate", bloom: "Summer", notes: "Japanese hydrangea vine" },
+  "parthenocissus": { type: "vine", sun: "part-sun", water: "moderate", notes: "Virginia creeper / Boston ivy" },
+  "campsis": { type: "vine", sun: "full-sun", water: "moderate", bloom: "Summer", notes: "Trumpet vine" },
+  "trachelospermum": { type: "vine", sun: "part-sun", water: "moderate", bloom: "Spring", notes: "Star jasmine" },
+  "hedera": { type: "vine", sun: "part-shade", water: "moderate", notes: "Ivy" },
+  "gelsemium": { type: "vine", sun: "full-sun", water: "moderate", bloom: "Early Spring", notes: "Carolina jessamine" },
+  "bignonia": { type: "vine", sun: "full-sun", water: "moderate", bloom: "Spring", notes: "Crossvine" },
+  "decumaria": { type: "vine", sun: "part-shade", water: "moderate", bloom: "Summer", notes: "Climbing hydrangea relative" },
+  "ficus": { type: "vine", sun: "part-shade", water: "moderate", notes: "Climbing fig" }
+};
+
+/**
  * Look up a plant by name. Tries multiple matching strategies.
  * Returns the DB entry or null.
  */
@@ -702,6 +895,45 @@ function lookupPlant(name) {
   // 6. Fuzzy match: check for similar spellings (only for similar-length strings)
   for (const k of Object.keys(PLANT_DB)) {
     if (similarEnough(key, k)) return PLANT_DB[k];
+  }
+
+  // 7. Genus-based lookup - extract first word and try GENUS_INFO
+  const genusMatch = lookupByGenus(name);
+  if (genusMatch) return genusMatch;
+
+  return null;
+}
+
+/**
+ * Look up plant info based on genus (first word of botanical name).
+ * Returns a synthetic DB entry with basic info.
+ */
+function lookupByGenus(name) {
+  if (!name) return null;
+
+  const cleanName = name.trim();
+
+  // Try to extract genus from the name
+  // Could be "Ilex crenata 'Northern Beauty'" or "Japanese Holly" or "Carex elata - Bowles Golden"
+  const words = cleanName.split(/[\s\-']+/).filter(w => w.length > 0);
+
+  // Try each word as a potential genus (botanical names usually start with genus)
+  for (const word of words) {
+    const lowerWord = word.toLowerCase();
+    if (GENUS_INFO[lowerWord]) {
+      const info = GENUS_INFO[lowerWord];
+      // Return a synthetic entry with the original name and genus-based info
+      return {
+        common: cleanName,
+        botanical: cleanName,
+        type: info.type || '',
+        size: info.size || '',
+        bloom: info.bloom || '',
+        sun: info.sun || '',
+        water: info.water || '',
+        notes: info.notes || ''
+      };
+    }
   }
 
   return null;
