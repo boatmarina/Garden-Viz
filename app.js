@@ -439,10 +439,8 @@
     };
 
     annotations.push(annotation);
-    console.log('Created annotation:', annotation, 'Total:', annotations.length);
     pendingAnnotationCoords = null;
     autoSave();
-    console.log('Calling renderMarkers, annotateMode:', annotateMode);
     renderMarkers();
     selectAnnotation(annotation.id);
   }
@@ -993,14 +991,12 @@
     }
 
     // Always render annotations
-    console.log('Rendering', annotations.length, 'annotations. Overlay:', overlay, 'Overlay parent:', overlay?.parentElement);
     annotations.forEach(a => {
       const el = document.createElement('div');
       el.className = 'annotation' + (a.id === selectedAnnotationId ? ' selected' : '');
       el.style.left = a.x + 'px';
       el.style.top = a.y + 'px';
       el.dataset.id = a.id;
-      console.log('  Annotation', a.id, 'at', a.x.toFixed(0), a.y.toFixed(0), 'element:', el);
 
       const label = document.createElement('span');
       label.className = 'annotation-label';
@@ -1013,7 +1009,6 @@
       });
       overlay.appendChild(el);
     });
-    console.log('Overlay children after render:', overlay.children.length);
 
     updateMarkerScale();
   }
@@ -1607,41 +1602,66 @@
   const originalRenderMarkers = renderMarkers;
   renderMarkers = function() {
     overlay.innerHTML = '';
-    markers.forEach(m => {
+
+    // Only render auto-scanned markers when NOT in annotate mode
+    if (!annotateMode) {
+      markers.forEach(m => {
+        const el = document.createElement('div');
+        el.className = 'marker' + (m.id === selectedId ? ' selected' : '');
+        el.style.left = m.x + 'px';
+        el.style.top = m.y + 'px';
+
+        const colorEntry = colorMap.find(c => c.id === m.colorId);
+        const displayColor = m.markerColor || (colorEntry && colorEntry.color);
+
+        if (displayColor && Array.isArray(displayColor) && displayColor.length >= 3) {
+          el.style.backgroundColor = `rgb(${displayColor[0]},${displayColor[1]},${displayColor[2]})`;
+        }
+
+        el.dataset.id = m.id;
+        const label = document.createElement('span');
+        label.className = 'marker-label';
+        label.textContent = m.common || m.name;
+        el.appendChild(label);
+
+        // Check for existing feedback and add visual indicator
+        const feedback = debugFeedback.find(f => f.markerId === m.id);
+        if (feedback) {
+          el.classList.add(`debug-${feedback.rating}`);
+        }
+
+        el.addEventListener('click', e => {
+          e.stopPropagation();
+          if (debugMode) {
+            handleMarkerClickForDebug(m.id);
+          } else {
+            selectMarker(m.id);
+          }
+        });
+        overlay.appendChild(el);
+      });
+    }
+
+    // Always render annotations
+    annotations.forEach(a => {
       const el = document.createElement('div');
-      el.className = 'marker' + (m.id === selectedId ? ' selected' : '');
-      el.style.left = m.x + 'px';
-      el.style.top = m.y + 'px';
+      el.className = 'annotation' + (a.id === selectedAnnotationId ? ' selected' : '');
+      el.style.left = a.x + 'px';
+      el.style.top = a.y + 'px';
+      el.dataset.id = a.id;
 
-      const colorEntry = colorMap.find(c => c.id === m.colorId);
-      const displayColor = m.markerColor || (colorEntry && colorEntry.color);
-
-      if (displayColor && Array.isArray(displayColor) && displayColor.length >= 3) {
-        el.style.backgroundColor = `rgb(${displayColor[0]},${displayColor[1]},${displayColor[2]})`;
-      }
-
-      el.dataset.id = m.id;
       const label = document.createElement('span');
-      label.className = 'marker-label';
-      label.textContent = m.common || m.name;
+      label.className = 'annotation-label';
+      label.textContent = a.common || a.name;
       el.appendChild(label);
-
-      // Check for existing feedback and add visual indicator
-      const feedback = debugFeedback.find(f => f.markerId === m.id);
-      if (feedback) {
-        el.classList.add(`debug-${feedback.rating}`);
-      }
 
       el.addEventListener('click', e => {
         e.stopPropagation();
-        if (debugMode) {
-          handleMarkerClickForDebug(m.id);
-        } else {
-          selectMarker(m.id);
-        }
+        selectAnnotation(a.id);
       });
       overlay.appendChild(el);
     });
+
     updateMarkerScale();
   };
 
